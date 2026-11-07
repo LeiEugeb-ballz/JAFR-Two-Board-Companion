@@ -1,0 +1,4 @@
+[submodule "DualEye-Live-Graphics"]
+	path = DualEye-Live-Graphics
+	url = https://github.com/LeiEugeb-ballz/ESP32-S3-DualEye-Touch-LCD-1.28.git
+	branch = feature/graphics-dedicated-dualeye

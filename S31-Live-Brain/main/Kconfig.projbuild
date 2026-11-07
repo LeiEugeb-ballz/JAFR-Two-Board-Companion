@@ -1,0 +1,52 @@
+menu "ESP32-S31 Voice Terminal Configuration"
+
+    config ESP_WIFI_SSID
+        string "WiFi SSID"
+        default "2.4GHz"
+        help
+            SSID of the 2.4GHz Wi-Fi network.
+
+    config ESP_WIFI_PASSWORD
+        string "WiFi Password"
+        default ""
+        help
+            Password of the Wi-Fi network. Keep the generated sdkconfig local;
+            never commit credentials.
+
+    config ESP_STATIC_IP
+        string "ESP32 Static IPv4 Address"
+        default "192.168.88.242"
+        help
+            Static IPv4 address assigned to the ESP32-S31 terminal.
+
+    config ESP_NETMASK
+        string "ESP32 Subnet Netmask"
+        default "255.255.255.0"
+        help
+            Subnet netmask for the network topology.
+
+    config ESP_GATEWAY_IP
+        string "Router/AP Gateway IPv4 Address"
+        default "192.168.88.1"
+        help
+            IPv4 address of the Wi-Fi AP router / default gateway.
+
+    config PC_GATEWAY_IP
+        string "PC Voice Gateway IPv4 Address"
+        default "192.168.88.252"
+        help
+            IPv4 address of the PC running the Voice Gateway service.
+
+    config PC_GATEWAY_UDP_PORT
+        int "PC Voice Gateway UDP Port"
+        default 5000
+        help
+            UDP port to send outgoing microphone PCM audio frames.
+
+    config ESP_LISTEN_UDP_PORT
+        int "ESP32 Listening UDP Port"
+        default 5001
+        help
+            UDP port to receive return PCM audio frames from PC.
+
+endmenu

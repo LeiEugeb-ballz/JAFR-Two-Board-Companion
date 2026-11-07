@@ -1,0 +1,26 @@
+# Historical workspace and private recovery data are intentionally out of scope.
+JAFR-Workspace/
+Recovery-Private/
+
+# Device captures and generated firmware artifacts.
+*.bin
+*.log
+dualeye-com13-*.log
+S31-COM18-*.bin
+
+# ESP-IDF generated state. Recreate from source and sdkconfig.defaults.
+S31-Live-Brain/build*/
+S31-Live-Brain/managed_components/
+S31-Live-Brain/.cache/
+S31-Live-Brain/.vscode/
+S31-Live-Brain/sdkconfig
+S31-Live-Brain/sdkconfig.old
+
+# Host-only runtime state and credentials.
+**/__pycache__/
+**/*.pyc
+**/.env
+S31-Live-Brain/pc_gateway/gateway.*.stdout.log
+S31-Live-Brain/pc_gateway/gateway.*.stderr.log
+S31-Live-Brain/pc_gateway/voice_pipeline.*.log
+

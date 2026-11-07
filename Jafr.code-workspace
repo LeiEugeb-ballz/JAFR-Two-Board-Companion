@@ -1,0 +1,13 @@
+{
+  "folders": [
+    {
+      "name": "DualEye firmware and control UI",
+      "path": "DualEye-Live-Graphics"
+    },
+    {
+      "name": "S31 firmware and PC voice pipeline",
+      "path": "S31-Live-Brain"
+    }
+  ],
+  "settings": {}
+}
