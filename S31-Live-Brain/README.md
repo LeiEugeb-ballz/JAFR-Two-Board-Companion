@@ -27,8 +27,10 @@ running before the November 2026 network and control-plane work.
 - persona grounding that treats the DualEye as Jaf-R's physical eyes and hides
   the diagnostic LED tool unless the user explicitly asks for it
 
-Bluetooth earbud output is a planned isolated feature. It is not included in
-this firmware yet.
+Bluetooth output is not included in the accepted firmware. The top-level
+`MISSION_FORECAST.md` defines separate, measured milestones for DualEye BLE GATT
+voice, official ESP-IDF A2DP Source earbud output, WebUI routing and direct
+S31-to-cloud conversation. The S31 speaker always retains the boot sound.
 
 ## Build
 

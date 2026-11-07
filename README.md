@@ -43,10 +43,10 @@ the documented toolchains; local `sdkconfig` and API/Wi-Fi secrets remain local.
   after empty STT, rejected noise, TTS completion, or LLM failure. This prevents
   the Eyes remaining stuck in thinking after a silent/failed turn.
 
-Next voice/persona tweak: stop JAPA from repeatedly saying the LED colour.
-Preserve the existing persona and voice pipeline; make only evidence-based voice
-model refinements, not a rewrite or restructuring. Bluetooth audio routing is
-deferred to a later isolated feature.
+The accepted baseline is immutable. All further work follows
+[`MISSION_FORECAST.md`](MISSION_FORECAST.md): measured DualEye audio, S31 A2DP
+routing, WebUI selection, direct S31-to-cloud conversation and final PC-off
+acceptance. Each milestone is developed and validated on a separate branch.
 
 The eye-awareness refinement is now implemented in source: the model knows the
 DualEye is its physical eye hardware, normal conversation no longer exposes the
@@ -167,5 +167,6 @@ a 3 MB recovery app, two 4 MB OTA slots, and a 4.8 MB storage partition. The
 result builds successfully with substantial app headroom. These changes were
 flashed and accepted on COM18 on 2026-11-05. Wi-Fi fallback, automatic gateway
 discovery, voice transport, mic mute, WebUI, ESP-NOW delivery telemetry, and
-conversation-state synchronization are live. Bluetooth earbud audio routing
-remains a separate future feature.
+conversation-state synchronization are live. Bluetooth and standalone-cloud work
+is governed by `MISSION_FORECAST.md` and must not alter this accepted behavior
+without milestone validation.
