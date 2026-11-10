@@ -23,11 +23,14 @@ import json
 import wave
 import base64
 import math
+import re
 import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import deque
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import numpy as np
 import scipy.signal as signal
 import sounddevice as sd
@@ -70,11 +73,61 @@ MISTRAL_LLM_MODEL = "mistral-small-latest"
 MISTRAL_TTS_MODEL = "voxtral-mini-tts-latest"
 DEFAULT_VOICE_ID = "cbe96cf0-85ec-4a10-accb-0b35c93b6dfd"  # Jane · Confident (GB) from PERSONA.md
 
+# --- LIGHTWEIGHT LOCAL MEMORY ---
+GATEWAY_DIR = Path(__file__).resolve().parent
+CURATED_MEMORY_PATH = GATEWAY_DIR / "memory.txt"
+RECENT_MEMORY_PATH = GATEWAY_DIR / "recent_memory.jsonl"
+CONVERSATION_ARCHIVE_PATH = GATEWAY_DIR / "conversation_archive.jsonl"
+CURATED_MEMORY_MAX_CHARS = 6000
+RECENT_MEMORY_TURNS = 10
+RECENT_MEMORY_FIELD_CHARS = 240
+LIVE_HISTORY_MESSAGES = 24
+
 # --- SYSTEM STATES ---
 STATE_IDLE = "IDLE"
 STATE_LISTENING = "LISTENING"
 STATE_THINKING = "THINKING"
 STATE_SPEAKING = "SPEAKING"
+
+
+def _compact_text(value, limit):
+    compact = " ".join((value or "").split())
+    return compact if len(compact) <= limit else compact[:limit - 1] + "…"
+
+
+def _read_recent_entries():
+    recent = deque(maxlen=RECENT_MEMORY_TURNS)
+    try:
+        with RECENT_MEMORY_PATH.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                try:
+                    recent.append(json.loads(line))
+                except Exception:
+                    continue
+    except FileNotFoundError:
+        pass
+    return recent
+
+
+def _load_memory_context():
+    curated = ""
+    try:
+        curated = CURATED_MEMORY_PATH.read_text(encoding="utf-8", errors="ignore")[:CURATED_MEMORY_MAX_CHARS].strip()
+    except FileNotFoundError:
+        pass
+
+    recent = _read_recent_entries()
+
+    sections = []
+    if curated:
+        sections.append("DURABLE LOCAL MEMORY (facts and accepted project decisions):\n" + curated)
+    if recent:
+        lines = [
+            f"- {item.get('timestamp', 'unknown')}: Bladder: {item.get('user', '')} | Jaf-R: {item.get('assistant', '')}"
+            for item in recent
+        ]
+        sections.append("RECENT TURN INDEX (use search_memory for full detail):\n" + "\n".join(lines))
+    return "\n\n".join(sections), len(curated), len(recent)
 
 
 class HardenedVoicePipelineServer:
@@ -95,6 +148,15 @@ class HardenedVoicePipelineServer:
         self.tx_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.esp32_addr = None
+        self.memory_lock = threading.Lock()
+        memory_context, curated_chars, recent_turns = _load_memory_context()
+        if memory_context:
+            memory_context = (
+                "\n\nLOCAL MEMORY POLICY:\n"
+                "Use the supplied compact memory naturally. Never claim a memory not present here. "
+                "If Bladder asks for an older detail, call search_memory instead of loading the full archive.\n"
+                + memory_context
+            )
         self.conversation_history = [
             {
                 "role": "system",
@@ -109,10 +171,13 @@ class HardenedVoicePipelineServer:
                     "2. read_file(filename): Reads text from a workspace file on disk.\n"
                     "3. write_file(filename, content): Creates or updates a text file on disk.\n"
                     "4. list_files(directory): Lists files and subdirectories in the workspace.\n"
+                    "5. search_memory(query): Searches the local conversation archive and durable memory.\n"
                     "NEVER claim to have physical arms, garden tools, or tools not listed above. Only report actions from actual function calls."
+                    + memory_context
                 )
             }
         ]
+        print(f"[MEMORY] Loaded {curated_chars} durable characters and {recent_turns} recent turns; full archive is not in the prompt.")
 
         self.current_state = STATE_IDLE
         self.is_speaking_tts = False
@@ -201,6 +266,7 @@ class HardenedVoicePipelineServer:
         target_host = self.esp32_addr[0]
         offset = 0
         total_len = len(pcm16_bytes)
+        next_frame_time = time.perf_counter()
 
         while offset < total_len and not self.stop_tts_event.is_set():
             chunk = pcm16_bytes[offset:offset + FRAME_BYTES]
@@ -219,7 +285,8 @@ class HardenedVoicePipelineServer:
                 print(f"[UDP TX ERROR] {e}")
 
             offset += FRAME_BYTES
-            time.sleep(0.019)  # Pace frames @ 20ms
+            next_frame_time += 0.020
+            time.sleep(max(0.0, next_frame_time - time.perf_counter()))
 
     def send_state_command(self, state):
         """Synchronize S31/Eyes after host-only outcomes such as empty STT."""
@@ -371,6 +438,95 @@ class HardenedVoicePipelineServer:
             return ", ".join(items[:30])
         except Exception as e:
             return f"Error listing directory '{path}': {e}"
+
+    def tool_search_memory(self, query):
+        """Search durable memory and the append-only archive without loading either wholesale."""
+        needle = " ".join((query or "").lower().split())
+        target_date = None
+        local_today = datetime.now().astimezone().date()
+        if "yesterday" in needle:
+            target_date = (local_today - timedelta(days=1)).isoformat()
+            needle = needle.replace("yesterday", " ")
+        elif "today" in needle:
+            target_date = local_today.isoformat()
+            needle = needle.replace("today", " ")
+        ignored = {"what", "when", "where", "which", "about", "did", "we", "i", "you", "discuss", "discussed", "chat", "chatted", "remember"}
+        terms = [term for term in re.findall(r"[a-z0-9_-]+", needle) if term not in ignored]
+
+        def memory_matches(text, timestamp=""):
+            if target_date and not timestamp.startswith(target_date):
+                return False
+            lowered = text.lower()
+            return not terms or all(term in lowered for term in terms)
+
+        results = deque(maxlen=8)
+        try:
+            if CURATED_MEMORY_PATH.exists():
+                curated_text = CURATED_MEMORY_PATH.read_text(encoding="utf-8", errors="ignore")
+                if target_date and target_date in curated_text:
+                    results.append("durable dated notes:\n" + curated_text[:CURATED_MEMORY_MAX_CHARS])
+                elif not target_date:
+                    for line in curated_text.splitlines():
+                        if line.strip() and memory_matches(line):
+                            results.append("durable: " + line.strip())
+            if CONVERSATION_ARCHIVE_PATH.exists():
+                with CONVERSATION_ARCHIVE_PATH.open("r", encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        try:
+                            item = json.loads(line)
+                        except Exception:
+                            continue
+                        searchable = f"{item.get('user', '')} {item.get('assistant', '')}"
+                        timestamp = item.get("timestamp", "unknown")
+                        if memory_matches(searchable, timestamp):
+                            results.append(
+                                f"{timestamp} | Bladder: {item.get('user', '')} | "
+                                f"Jaf-R: {item.get('assistant', '')}"
+                            )
+            if not results:
+                return "No matching local memory was found. Do not invent one."
+            return "\n".join(results)[:5000]
+        except Exception as exc:
+            return f"Memory search failed: {exc}"
+
+    def record_conversation_turn(self, user_text, assistant_text):
+        """Persist one full turn plus a bounded restart index; no extra API request."""
+        timestamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        archive_entry = {
+            "timestamp": timestamp,
+            "user": user_text,
+            "assistant": assistant_text,
+        }
+        recent_entry = {
+            "timestamp": timestamp,
+            "user": _compact_text(user_text, RECENT_MEMORY_FIELD_CHARS),
+            "assistant": _compact_text(assistant_text, RECENT_MEMORY_FIELD_CHARS),
+        }
+        try:
+            with self.memory_lock:
+                with CONVERSATION_ARCHIVE_PATH.open("a", encoding="utf-8", newline="\n") as handle:
+                    handle.write(json.dumps(archive_entry, ensure_ascii=False) + "\n")
+                recent = _read_recent_entries()
+                recent.append(recent_entry)
+                recent_temp = RECENT_MEMORY_PATH.with_suffix(".jsonl.tmp")
+                with recent_temp.open("w", encoding="utf-8", newline="\n") as handle:
+                    for item in recent:
+                        handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+                os.replace(recent_temp, RECENT_MEMORY_PATH)
+            print(f"[MEMORY] Archived conversation turn at {timestamp}")
+        except Exception as exc:
+            print(f"[MEMORY ERROR] Conversation was not archived: {exc}")
+
+    def trim_live_history(self):
+        """Bound API context while retaining the system memory and complete recent turns."""
+        if len(self.conversation_history) <= LIVE_HISTORY_MESSAGES + 1:
+            return
+        tail = self.conversation_history[1:][-LIVE_HISTORY_MESSAGES:]
+        for index, message in enumerate(tail):
+            if message.get("role") == "user":
+                tail = tail[index:]
+                break
+        self.conversation_history = [self.conversation_history[0], *tail]
 
     def play_audio_on_pc_and_esp32(self, pcm16_bytes):
         self.current_state = STATE_SPEAKING
@@ -550,6 +706,22 @@ class HardenedVoicePipelineServer:
                     }
                 }
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_memory",
+                    "description": "Search Jaf-R's local durable memory and full conversation archive for an older detail. Use when the compact prompt memory is insufficient; never invent a result.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "A short keyword or phrase from the remembered topic. Empty returns the most recent archived turns."
+                            }
+                        }
+                    }
+                }
+            },
         ]
 
         # Keep the diagnostic LED tool available only when the user explicitly
@@ -626,6 +798,8 @@ class HardenedVoicePipelineServer:
                         tool_result = self.tool_write_file(args.get("filename", ""), args.get("content", ""))
                     elif func_name == "list_files":
                         tool_result = self.tool_list_files(args.get("path", "."))
+                    elif func_name == "search_memory":
+                        tool_result = self.tool_search_memory(args.get("query", ""))
 
                     self.conversation_history.append({
                         "role": "tool",
@@ -720,6 +894,9 @@ class HardenedVoicePipelineServer:
             tts_done = True
             
             self.conversation_history.append({"role": "assistant", "content": assistant_text})
+            if assistant_text.strip():
+                self.record_conversation_turn(user_text, assistant_text.strip())
+            self.trim_live_history()
             llm_latency_ms = (time.time() - llm_start) * 1000.0
             print(f"[LLM -> STREAM COMPLETE] '{assistant_text}' (LLM Time: {llm_latency_ms:.1f} ms)")
 

@@ -26,9 +26,27 @@ running before the November 2026 network and control-plane work.
   buttons, and a voice-model `control_eyes` tool
 - persona grounding that treats the DualEye as Jaf-R's physical eyes and hides
   the diagnostic LED tool unless the user explicitly asks for it
+- persisted response routing (`Auto`, `S31 primary`, `DualEye`) through
+  `/api/audio`; it was built, flashed and passed the automated route gate.
+  DualEye playback was physically heard while the eyes stayed animated;
+  physical S31/fallback route confirmation remains pending
 
 Bluetooth earbud output is a planned isolated feature. It is not included in
 this firmware yet.
+
+## Local conversation memory
+
+The PC gateway uses three bounded local files beside `voice_pipeline.py`:
+
+- `memory.txt`: compact durable facts and accepted decisions, loaded at
+  startup with a 6,000-character cap;
+- `recent_memory.jsonl`: the ten most recent compact turn summaries loaded on
+  restart;
+- `conversation_archive.jsonl`: full append-only user/assistant turns, never
+  transmitted wholesale and searched only through the `search_memory` tool.
+
+The gateway keeps only a bounded live API history and makes no extra model call
+for memory. These files are local and ignored by Git.
 
 ## Build
 

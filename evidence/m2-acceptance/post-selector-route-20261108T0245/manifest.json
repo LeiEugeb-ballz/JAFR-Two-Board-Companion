@@ -1,0 +1,40 @@
+{
+  "dualeye_status": "http://192.168.88.145:3233/ble/audio/status",
+  "flash_performed": false,
+  "phase": "route",
+  "repositories": [
+    {
+      "branch": "feature/m2-ble-gatt-audio",
+      "revision": "612cb2ea0cf8432c1c13a47db838f69461344f02",
+      "root": "C:\\Users\\txr45\\Documents\\Project TakeOver\\November\\Jafr",
+      "status": "## feature/m2-ble-gatt-audio\n m DualEye-Live-Graphics\n M S31-Live-Brain/README.md\n M S31-Live-Brain/main/CMakeLists.txt\n M S31-Live-Brain/main/jafr_webui.c\n M S31-Live-Brain/main/jafr_webui.h\n M S31-Live-Brain/main/main.c\n M S31-Live-Brain/main/web/index.html\n M S31-Live-Brain/pc_gateway/voice_pipeline.py\n M S31-Live-Brain/sdkconfig.defaults\n?? MISSION_FORECAST.md\n?? S31-Live-Brain/.gitignore\n?? S31-Live-Brain/board-profile.json\n?? S31-Live-Brain/main/jafr_ble_audio.c\n?? S31-Live-Brain/main/jafr_ble_audio.h\n?? S31-Live-Brain/pc_gateway/send_m2_tone.py\n?? S31-Live-Brain/pc_gateway/ui_audio_settings_update.md\n?? evidence/\n?? tools/",
+      "submodules": "-e11f247bc0633ee8feebb6398e37db18c54928cb DualEye-Live-Graphics"
+    },
+    {
+      "branch": "feature/m2-ble-gatt-audio",
+      "revision": "612cb2ea0cf8432c1c13a47db838f69461344f02",
+      "root": "C:\\Users\\txr45\\Documents\\Project TakeOver\\November\\Jafr\\S31-Live-Brain",
+      "status": "## feature/m2-ble-gatt-audio\n m ../DualEye-Live-Graphics\n M README.md\n M main/CMakeLists.txt\n M main/jafr_webui.c\n M main/jafr_webui.h\n M main/main.c\n M main/web/index.html\n M pc_gateway/voice_pipeline.py\n M sdkconfig.defaults\n?? ../MISSION_FORECAST.md\n?? .gitignore\n?? board-profile.json\n?? main/jafr_ble_audio.c\n?? main/jafr_ble_audio.h\n?? pc_gateway/send_m2_tone.py\n?? pc_gateway/ui_audio_settings_update.md\n?? ../evidence/\n?? ../tools/",
+      "submodules": "-e11f247bc0633ee8feebb6398e37db18c54928cb ../DualEye-Live-Graphics"
+    },
+    {
+      "branch": "feature/m2-ble-gatt-audio",
+      "revision": "e11f247bc0633ee8feebb6398e37db18c54928cb",
+      "root": "C:\\Users\\txr45\\Documents\\Project TakeOver\\November\\Jafr\\DualEye-Live-Graphics",
+      "status": "## feature/m2-ble-gatt-audio\n M xiaozhi-esp32/main/application.cc\n M xiaozhi-esp32/main/application.h\n M xiaozhi-esp32/main/audio/audio_service.cc\n M xiaozhi-esp32/main/audio/audio_service.h\n M xiaozhi-esp32/main/boards/waveshare/esp32-s3-dualeye-lcd-1.28/boot_control_server.cc\n M xiaozhi-esp32/main/boards/waveshare/esp32-s3-dualeye-lcd-1.28/display_manager.cc\n M xiaozhi-esp32/main/boards/waveshare/esp32-s3-dualeye-lcd-1.28/display_manager.h\n M xiaozhi-esp32/sdkconfig.defaults.esp32s3\n?? xiaozhi-esp32/main/boards/waveshare/esp32-s3-dualeye-lcd-1.28/ble_audio_receiver.cc\n?? xiaozhi-esp32/main/boards/waveshare/esp32-s3-dualeye-lcd-1.28/ble_audio_receiver.h",
+      "submodules": ""
+    }
+  ],
+  "reset_performed": false,
+  "s31_status": "http://192.168.88.242/api/status",
+  "schema_version": 1,
+  "started_utc": "2026-11-08T00:45:33.737500+00:00",
+  "thresholds": {
+    "min_fps": 14.5,
+    "min_frames": 50,
+    "min_internal": 16384,
+    "min_mtu": 179,
+    "min_stack": 1024
+  },
+  "tone_transport": "udp://192.168.88.242:5001"
+}

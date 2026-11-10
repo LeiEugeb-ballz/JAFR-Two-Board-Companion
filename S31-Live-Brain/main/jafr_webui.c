@@ -27,7 +27,7 @@ static esp_err_t status_get(httpd_req_t *req)
 {
     jafr_web_status_t s = {0};
     jafr_network_get_web_status(&s);
-    char json[512];
+    char json[896];
     int len = snprintf(json, sizeof(json),
         "{\"wifi_ip\":\"%s\",\"ethernet_ip\":\"%s\",\"ethernet_link\":%s,\"gateway_ip\":\"%s\","
         "\"gateway_mode\":\"%s\",\"gateway_discovered\":%s,\"mic_muted\":%s,"
@@ -35,6 +35,11 @@ static esp_err_t status_get(httpd_req_t *req)
         "\"espnow_delivered\":%lu,\"espnow_delivery_failed\":%lu,"
         "\"espnow_last\":\"%s\","
         "\"tx_packets\":%lu,\"rx_packets\":%lu,\"mic_rms\":%.1f,"
+        "\"ble_audio_initialized\":%s,\"ble_audio_scanning\":%s,"
+        "\"ble_audio_connected\":%s,\"ble_audio_ready\":%s,"
+        "\"ble_audio_mtu\":%u,\"ble_audio_sent\":%lu,"
+        "\"ble_audio_dropped\":%lu,\"ble_audio_failures\":%lu,"
+        "\"audio_route\":\"%s\",\"audio_output\":\"%s\","
         "\"free_heap\":%lu}",
         s.wifi_ip, s.ethernet_ip, s.ethernet_link ? "true" : "false", s.gateway_ip,
         s.gateway_auto ? "auto" : "manual",
@@ -44,8 +49,17 @@ static esp_err_t status_get(httpd_req_t *req)
         (unsigned long)s.espnow_accepted, (unsigned long)s.espnow_failed,
         (unsigned long)s.espnow_delivered, (unsigned long)s.espnow_delivery_failed,
         s.espnow_last,
-        (unsigned long)s.tx_packets, (unsigned long)s.rx_packets,
-        s.mic_rms, (unsigned long)s.free_heap);
+        (unsigned long)s.tx_packets, (unsigned long)s.rx_packets, s.mic_rms,
+        s.ble_audio_initialized ? "true" : "false",
+        s.ble_audio_scanning ? "true" : "false",
+        s.ble_audio_connected ? "true" : "false",
+        s.ble_audio_ready ? "true" : "false",
+        s.ble_audio_mtu,
+        (unsigned long)s.ble_audio_sent,
+        (unsigned long)s.ble_audio_dropped,
+        (unsigned long)s.ble_audio_failures,
+        s.audio_route, s.audio_output,
+        (unsigned long)s.free_heap);
     if (len < 0 || len >= (int)sizeof(json)) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "status overflow");
     }
@@ -116,6 +130,32 @@ static esp_err_t mic_post(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "muted=true|false required");
     }
     jafr_audio_set_mic_muted(strcmp(muted, "true") == 0);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+
+static esp_err_t audio_post(httpd_req_t *req)
+{
+    if (req->content_len <= 0 || req->content_len >= 32) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid body");
+    }
+    char body[32] = {0};
+    size_t received = 0;
+    while (received < req->content_len) {
+        int chunk = httpd_req_recv(req, body + received, req->content_len - received);
+        if (chunk <= 0) {
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body read failed");
+        }
+        received += (size_t)chunk;
+    }
+    char route[12] = {0};
+    if (httpd_query_key_value(body, "route", route, sizeof(route)) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "route required");
+    }
+    esp_err_t err = jafr_audio_set_output_route(route);
+    if (err != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "route=auto|s31|dualeye required");
+    }
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
@@ -204,6 +244,7 @@ esp_err_t jafr_webui_start(void)
         {.uri = "/api/status", .method = HTTP_GET, .handler = status_get},
         {.uri = "/api/gateway", .method = HTTP_POST, .handler = gateway_post},
         {.uri = "/api/mic", .method = HTTP_POST, .handler = mic_post},
+        {.uri = "/api/audio", .method = HTTP_POST, .handler = audio_post},
         {.uri = "/api/eyes", .method = HTTP_POST, .handler = eyes_post},
         {.uri = "/api/restart", .method = HTTP_POST, .handler = restart_post},
     };

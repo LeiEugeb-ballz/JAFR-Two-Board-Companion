@@ -43,6 +43,7 @@
 #include "s31_graphics.h"
 #include "jafr_webui.h"
 #include "jafr_ethernet.h"
+#include "jafr_ble_audio.h"
 
 static const char *TAG = "PHASE_3_NET_AUDIO";
 
@@ -117,6 +118,7 @@ static bool g_local_speech_active = false;
 static volatile bool g_mic_muted = false;
 static bool g_gateway_auto = true;
 static uint32_t g_manual_gateway_ip = 0;
+static volatile jafr_audio_route_t g_audio_route = JAFR_AUDIO_ROUTE_AUTO;
 // Network byte order. Zero means automatic discovery has not completed.
 // The ACK receiver updates this from the packet source.
 static volatile uint32_t g_pc_gateway_ip = 0;
@@ -151,6 +153,33 @@ static void load_gateway_config(void)
     ESP_LOGI(TAG, "Gateway mode: %s, manual address: %s",
              g_gateway_auto ? "automatic discovery" : "manual",
              g_manual_gateway_ip ? ip : "not set");
+}
+
+static const char *audio_route_name(jafr_audio_route_t route)
+{
+    switch (route) {
+    case JAFR_AUDIO_ROUTE_S31:
+        return "s31";
+    case JAFR_AUDIO_ROUTE_DUALEYE:
+        return "dualeye";
+    case JAFR_AUDIO_ROUTE_AUTO:
+    default:
+        return "auto";
+    }
+}
+
+static void load_audio_config(void)
+{
+    nvs_handle_t handle;
+    uint8_t route = JAFR_AUDIO_ROUTE_AUTO;
+    if (nvs_open("jafr_audio", NVS_READONLY, &handle) == ESP_OK) {
+        if (nvs_get_u8(handle, "route", &route) != ESP_OK || route > JAFR_AUDIO_ROUTE_DUALEYE) {
+            route = JAFR_AUDIO_ROUTE_AUTO;
+        }
+        nvs_close(handle);
+    }
+    g_audio_route = (jafr_audio_route_t)route;
+    ESP_LOGI(TAG, "Response audio route: %s", audio_route_name(g_audio_route));
 }
 
 esp_err_t jafr_network_set_gateway_config(bool automatic, const char *ip)
@@ -195,6 +224,34 @@ void jafr_audio_set_mic_muted(bool muted)
     ESP_LOGI(TAG, "Microphone transport %s", muted ? "MUTED" : "LIVE");
 }
 
+esp_err_t jafr_audio_set_output_route(const char *route)
+{
+    jafr_audio_route_t selected;
+    if (route == NULL || strcmp(route, "auto") == 0) {
+        selected = JAFR_AUDIO_ROUTE_AUTO;
+    } else if (strcmp(route, "s31") == 0) {
+        selected = JAFR_AUDIO_ROUTE_S31;
+    } else if (strcmp(route, "dualeye") == 0) {
+        selected = JAFR_AUDIO_ROUTE_DUALEYE;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open("jafr_audio", NVS_READWRITE, &handle), TAG,
+                        "open audio settings");
+    esp_err_t err = nvs_set_u8(handle, "route", (uint8_t)selected);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    if (err == ESP_OK) {
+        g_audio_route = selected;
+        ESP_LOGI(TAG, "Response audio route changed to %s", audio_route_name(selected));
+    }
+    return err;
+}
+
 void jafr_network_get_web_status(jafr_web_status_t *status)
 {
     if (status == NULL) {
@@ -225,6 +282,22 @@ void jafr_network_get_web_status(jafr_web_status_t *status)
     status->rx_packets = g_rx_packets;
     status->mic_rms = g_last_mic_rms;
     status->free_heap = esp_get_free_heap_size();
+    jafr_ble_audio_status_t ble = {0};
+    jafr_ble_audio_get_status(&ble);
+    status->ble_audio_initialized = ble.initialized;
+    status->ble_audio_scanning = ble.scanning;
+    status->ble_audio_connected = ble.connected;
+    status->ble_audio_ready = ble.ready;
+    status->ble_audio_mtu = ble.mtu;
+    status->ble_audio_sent = ble.sent_frames;
+    status->ble_audio_dropped = ble.queue_drops;
+    status->ble_audio_failures = ble.write_failures;
+    snprintf(status->audio_route, sizeof(status->audio_route), "%s",
+             audio_route_name(g_audio_route));
+    const bool using_dualeye = g_audio_route != JAFR_AUDIO_ROUTE_S31 && ble.ready;
+    snprintf(status->audio_output, sizeof(status->audio_output), "%s",
+             using_dualeye ? "dualeye" :
+             (g_audio_route == JAFR_AUDIO_ROUTE_DUALEYE ? "s31-fallback" : "s31"));
 }
 
 static float calculate_zcr(int16_t *samples, int num_samples) {
@@ -837,7 +910,14 @@ static void udp_rx_task(void *pvParameters)
                 s31_led_status_set_state(S31_LED_STATE_SPEAKING);
 
                 size_t pcm_len = len - sizeof(audio_frame_header_t);
-                if (pcm_len > 0 && spk_codec_dev != NULL) {
+                bool routed_to_dualeye = false;
+                if (g_audio_route != JAFR_AUDIO_ROUTE_S31 &&
+                    pcm_len >= sizeof(int16_t) && (pcm_len % sizeof(int16_t)) == 0) {
+                    routed_to_dualeye = jafr_ble_audio_submit_pcm(
+                        (const int16_t *)(rx_buf + sizeof(audio_frame_header_t)),
+                        pcm_len / sizeof(int16_t));
+                }
+                if (!routed_to_dualeye && pcm_len > 0 && spk_codec_dev != NULL) {
                     esp_codec_dev_write(spk_codec_dev, rx_buf + sizeof(audio_frame_header_t), pcm_len);
                 }
             }
@@ -1049,6 +1129,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
     load_gateway_config();
+    load_audio_config();
 
     // Create RingBuffer: 5 frames * 640B = 3200B capacity
     tx_ringbuf = xRingbufferCreate(3200, RINGBUF_TYPE_NOSPLIT);
@@ -1070,6 +1151,11 @@ void app_main(void)
     esp_err_t web_err = jafr_webui_start();
     if (web_err != ESP_OK) {
         ESP_LOGW(TAG, "Web control deck unavailable: %s", esp_err_to_name(web_err));
+    }
+    esp_err_t ble_audio_err = jafr_ble_audio_init();
+    if (ble_audio_err != ESP_OK) {
+        ESP_LOGW(TAG, "DualEye BLE audio unavailable; S31 speaker fallback remains active: %s",
+                 esp_err_to_name(ble_audio_err));
     }
 
     if (mic_codec_dev) {
