@@ -38,6 +38,15 @@ typedef struct {
     uint32_t ble_audio_failures;
     char audio_route[12];
     char audio_output[16];
+    char voice_mode[12];
+    char cloud_state[16];
+    bool cloud_key_configured;
+    bool cloud_stt_connected;
+    bool cloud_tts_connected;
+    uint32_t cloud_chunks_sent;
+    uint32_t cloud_chunks_dropped;
+    uint32_t cloud_turns_completed;
+    uint32_t cloud_reconnects;
 } jafr_web_status_t;
 
 void jafr_network_get_web_status(jafr_web_status_t *status);

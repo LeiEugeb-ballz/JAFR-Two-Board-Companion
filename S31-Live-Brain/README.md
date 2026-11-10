@@ -30,9 +30,18 @@ running before the November 2026 network and control-plane work.
   `/api/audio`; it was built, flashed and passed the automated route gate.
   DualEye playback was physically heard while the eyes stayed animated;
   physical S31/fallback route confirmation remains pending
+- isolated direct-cloud voice through Mistral realtime STT/TTS WebSockets and
+  streamed chat completions; the existing PC gateway remains the fallback and
+  the accepted S31/DualEye speaker selector is reused
+- WebUI voice-mode selection and write-only key provisioning through
+  `POST /api/voice`; status reports connection/counter state, never the key
 
 Bluetooth earbud output is a planned isolated feature. It is not included in
-this firmware yet.
+this firmware yet. Direct-cloud mode is build-verified only: it has not been
+flashed or exercised against the live board/API. This first revision is
+single-turn (no durable direct-mode conversation memory), stores the key in
+ordinary NVS, and provisions it over the board's HTTP-only local WebUI. Those
+are explicit validation/security limits, not production claims.
 
 ## Local conversation memory
 
@@ -61,12 +70,13 @@ uses `--no-configdep` because ESP-IDF's config dependency wrapper mishandles the
 space in `Project TakeOver`. Normal compiler dependency tracking and ccache stay
 enabled.
 
-The final host-built image is
-`build_s31_release_j/JAFR_S31_Live_Brain.bin` (SHA256
-`7C6BE67FA95981DAED340DAFD42CF1C2449EACD0BEE1430265B7696283690C6F`).
-It has 63% of the 3 MB app partition free. The watchdog revision was flashed and
-boot-accepted on COM18 on 2026-11-07; esptool verified the written hash. The
-board then connected to the gateway and reported healthy WebUI/ESP-NOW status.
+The direct-cloud branch builds
+`build_s31_release_j/JAFR_S31_Live_Brain.bin` at 1,807,136 bytes (SHA256
+`307AD74739BBC6A6B705C25B9FADA53C96FA23B33DFBAFC53B0CA4F3F9E0E050`).
+It has 43% of the 3 MB app partition free. This image is not yet flashed. The
+previous watchdog revision was flashed and boot-accepted on COM18 on
+2026-11-07; esptool verified that earlier written hash and the board then
+reported healthy WebUI/ESP-NOW status.
 
 The accepted eye-control image is 1,164,976 bytes, SHA256
 `9269E605AB9C7015E8356360416C3E7D3186DC17624CCCFBD515A9D91EE65781`.
@@ -89,7 +99,21 @@ board dump in `..\Recovery-Private` before doing this.
 After flashing, open `http://<S31 Wi-Fi or Ethernet address>/`. Automatic mode
 discovers the PC voice gateway from its reply packet and keeps checking so it can
 recover when DHCP moves the PC. Manual mode stores an IPv4 address in NVS and
-applies it after restart. The page never stores API keys.
+applies it after restart.
+
+The direct-cloud controls accept a Mistral key, store it in ordinary NVS, and
+never return it through the status endpoint. The page is HTTP, not HTTPS, so
+enter the key only on a trusted local network. `PC fallback` remains the default
+until a key is saved and direct mode is explicitly selected.
+
+Run the non-destructive build/source gate with:
+
+```powershell
+python ..\tools\s31_direct_cloud_acceptance.py
+```
+
+After flashing, add `--base-url http://<S31-address>` for a read-only live
+status-schema probe. The harness does not change voice mode or credentials.
 
 The page was physically accepted over Wi-Fi on 2026-11-05 at
 `http://192.168.88.242/`. The dedicated Ethernet path was accepted earlier at

@@ -32,8 +32,26 @@ The immutable accepted baseline is `checkpoint-2026-11-07`. Experimental work mu
 3. Prove S31-to-DualEye BLE audio while eyes animate. **Experimental baseline frozen on `feature/m2-ble-gatt-audio`; automated gate passed and DualEye playback/animation were physically confirmed.**
 4. Prove ordinary Bluetooth earbuds via A2DP.
 5. Add WebUI speaker selection and defaults.
-6. Implement direct S31-to-cloud conversation.
+6. Implement direct S31-to-cloud conversation. **Implemented on isolated
+   `feature/s31-direct-cloud-voice`; build and source contract pass, physical
+   flash/API/audio validation still required.**
 7. Demonstrate normal operation with the PC switched off.
+
+## Direct-cloud validation gate
+
+- DualEye source and pinned revision remain unchanged.
+- PC gateway remains selectable and functional as the rollback path.
+- Realtime STT accepts the S31's 16 kHz mono PCM and produces complete turns.
+- Streamed chat deltas reach realtime TTS; 24 kHz PCM is converted to 16 kHz.
+- Existing Auto/S31/DualEye output selection controls response playback.
+- Listening, thinking, speaking and error states use the existing ESP-NOW eye
+  expression interface without changing its protocol.
+- Barge-in stops audible response promptly without stale audio leaking into the
+  next turn; reconnect and API failure return to a usable state.
+- WebUI never returns/logs the API key. Plain-NVS and HTTP provisioning remain
+  known security limitations until a secure provisioning milestone is accepted.
+- Heap, dropped chunks, reconnects, response latency and eye animation are
+  measured on hardware before merge or PC-independent acceptance.
 
 ## M2 acceptance gate
 

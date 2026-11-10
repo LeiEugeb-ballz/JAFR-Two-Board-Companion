@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "jafr_webui.h"
+#include "jafr_cloud_voice.h"
 #include "s31_graphics.h"
 
 static const char *TAG = "JAFR_WEBUI";
@@ -27,7 +28,7 @@ static esp_err_t status_get(httpd_req_t *req)
 {
     jafr_web_status_t s = {0};
     jafr_network_get_web_status(&s);
-    char json[896];
+    char json[1280];
     int len = snprintf(json, sizeof(json),
         "{\"wifi_ip\":\"%s\",\"ethernet_ip\":\"%s\",\"ethernet_link\":%s,\"gateway_ip\":\"%s\","
         "\"gateway_mode\":\"%s\",\"gateway_discovered\":%s,\"mic_muted\":%s,"
@@ -40,6 +41,11 @@ static esp_err_t status_get(httpd_req_t *req)
         "\"ble_audio_mtu\":%u,\"ble_audio_sent\":%lu,"
         "\"ble_audio_dropped\":%lu,\"ble_audio_failures\":%lu,"
         "\"audio_route\":\"%s\",\"audio_output\":\"%s\","
+        "\"voice_mode\":\"%s\",\"cloud_state\":\"%s\","
+        "\"cloud_key_configured\":%s,\"cloud_stt_connected\":%s,"
+        "\"cloud_tts_connected\":%s,\"cloud_chunks_sent\":%lu,"
+        "\"cloud_chunks_dropped\":%lu,\"cloud_turns_completed\":%lu,"
+        "\"cloud_reconnects\":%lu,"
         "\"free_heap\":%lu}",
         s.wifi_ip, s.ethernet_ip, s.ethernet_link ? "true" : "false", s.gateway_ip,
         s.gateway_auto ? "auto" : "manual",
@@ -59,6 +65,14 @@ static esp_err_t status_get(httpd_req_t *req)
         (unsigned long)s.ble_audio_dropped,
         (unsigned long)s.ble_audio_failures,
         s.audio_route, s.audio_output,
+        s.voice_mode, s.cloud_state,
+        s.cloud_key_configured ? "true" : "false",
+        s.cloud_stt_connected ? "true" : "false",
+        s.cloud_tts_connected ? "true" : "false",
+        (unsigned long)s.cloud_chunks_sent,
+        (unsigned long)s.cloud_chunks_dropped,
+        (unsigned long)s.cloud_turns_completed,
+        (unsigned long)s.cloud_reconnects,
         (unsigned long)s.free_heap);
     if (len < 0 || len >= (int)sizeof(json)) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "status overflow");
@@ -160,6 +174,51 @@ static esp_err_t audio_post(httpd_req_t *req)
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
+static esp_err_t voice_post(httpd_req_t *req)
+{
+    if (req->content_len <= 0 || req->content_len >= 384) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid body");
+    }
+    char body[384] = {0};
+    size_t received = 0;
+    while (received < req->content_len) {
+        int chunk = httpd_req_recv(req, body + received, req->content_len - received);
+        if (chunk <= 0) {
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body read failed");
+        }
+        received += (size_t)chunk;
+    }
+    char mode_text[12] = {0};
+    char api_key[192] = {0};
+    char clear_text[8] = {0};
+    if (httpd_query_key_value(body, "mode", mode_text, sizeof(mode_text)) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "mode required");
+    }
+    jafr_voice_mode_t mode;
+    if (strcmp(mode_text, "pc") == 0) mode = JAFR_VOICE_MODE_PC;
+    else if (strcmp(mode_text, "direct") == 0) mode = JAFR_VOICE_MODE_DIRECT;
+    else return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "mode=pc|direct required");
+
+    bool clear = httpd_query_key_value(body, "clear", clear_text, sizeof(clear_text)) == ESP_OK &&
+                 strcmp(clear_text, "true") == 0;
+    const char *key = NULL;
+    if (httpd_query_key_value(body, "api_key", api_key, sizeof(api_key)) == ESP_OK && api_key[0]) {
+        key = api_key;
+    }
+    esp_err_t err = jafr_cloud_voice_configure(mode, key, clear);
+    memset(api_key, 0, sizeof(api_key));
+    if (err != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "voice configuration rejected");
+    }
+    jafr_cloud_status_t status = {0};
+    jafr_cloud_voice_get_status(&status);
+    if (mode == JAFR_VOICE_MODE_DIRECT && !status.key_configured) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Mistral API key required");
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+
 static esp_err_t eyes_post(httpd_req_t *req)
 {
     if (req->content_len <= 0 || req->content_len >= 128) {
@@ -232,7 +291,7 @@ static esp_err_t restart_post(httpd_req_t *req)
 esp_err_t jafr_webui_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 9;
     config.stack_size = 6144;
     config.lru_purge_enable = true;
 
@@ -245,6 +304,7 @@ esp_err_t jafr_webui_start(void)
         {.uri = "/api/gateway", .method = HTTP_POST, .handler = gateway_post},
         {.uri = "/api/mic", .method = HTTP_POST, .handler = mic_post},
         {.uri = "/api/audio", .method = HTTP_POST, .handler = audio_post},
+        {.uri = "/api/voice", .method = HTTP_POST, .handler = voice_post},
         {.uri = "/api/eyes", .method = HTTP_POST, .handler = eyes_post},
         {.uri = "/api/restart", .method = HTTP_POST, .handler = restart_post},
     };

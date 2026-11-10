@@ -44,6 +44,7 @@
 #include "jafr_webui.h"
 #include "jafr_ethernet.h"
 #include "jafr_ble_audio.h"
+#include "jafr_cloud_voice.h"
 
 static const char *TAG = "PHASE_3_NET_AUDIO";
 
@@ -122,6 +123,50 @@ static volatile jafr_audio_route_t g_audio_route = JAFR_AUDIO_ROUTE_AUTO;
 // Network byte order. Zero means automatic discovery has not completed.
 // The ACK receiver updates this from the packet source.
 static volatile uint32_t g_pc_gateway_ip = 0;
+
+static void route_response_pcm(const int16_t *samples, size_t sample_count)
+{
+    if (samples == NULL || sample_count == 0) return;
+    bool routed_to_dualeye = false;
+    if (g_audio_route != JAFR_AUDIO_ROUTE_S31) {
+        routed_to_dualeye = jafr_ble_audio_submit_pcm(samples, sample_count);
+    }
+    if (!routed_to_dualeye && spk_codec_dev != NULL) {
+        esp_codec_dev_write(spk_codec_dev, (void *)samples, sample_count * sizeof(int16_t));
+    }
+    g_rx_packets++;
+    g_rx_bytes += sample_count * sizeof(int16_t);
+}
+
+static void cloud_state_changed(jafr_cloud_state_t state)
+{
+    switch (state) {
+    case JAFR_CLOUD_LISTENING:
+        s31_led_status_set_state(S31_LED_STATE_LISTENING);
+        s31_graphics_expression("listening");
+        break;
+    case JAFR_CLOUD_THINKING:
+        s31_led_status_set_state(S31_LED_STATE_THINKING);
+        s31_graphics_expression("thinking");
+        break;
+    case JAFR_CLOUD_SPEAKING:
+        s31_led_status_set_state(S31_LED_STATE_SPEAKING);
+        s31_graphics_expression("speaking");
+        break;
+    case JAFR_CLOUD_ERROR:
+        s31_led_status_set_state(S31_LED_STATE_ERROR);
+        s31_graphics_expression("error");
+        break;
+    case JAFR_CLOUD_CONNECTING:
+        s31_led_status_set_state(S31_LED_STATE_CONNECTING);
+        break;
+    case JAFR_CLOUD_DISABLED:
+    default:
+        s31_led_status_set_state(S31_LED_STATE_IDLE);
+        s31_graphics_expression("neutral");
+        break;
+    }
+}
 
 static inline uint32_t current_pc_gateway_ip(void)
 {
@@ -298,6 +343,19 @@ void jafr_network_get_web_status(jafr_web_status_t *status)
     snprintf(status->audio_output, sizeof(status->audio_output), "%s",
              using_dualeye ? "dualeye" :
              (g_audio_route == JAFR_AUDIO_ROUTE_DUALEYE ? "s31-fallback" : "s31"));
+    jafr_cloud_status_t cloud = {0};
+    jafr_cloud_voice_get_status(&cloud);
+    snprintf(status->voice_mode, sizeof(status->voice_mode), "%s",
+             cloud.mode == JAFR_VOICE_MODE_DIRECT ? "direct" : "pc");
+    snprintf(status->cloud_state, sizeof(status->cloud_state), "%s",
+             jafr_cloud_state_name(cloud.state));
+    status->cloud_key_configured = cloud.key_configured;
+    status->cloud_stt_connected = cloud.stt_connected;
+    status->cloud_tts_connected = cloud.tts_connected;
+    status->cloud_chunks_sent = cloud.audio_chunks_sent;
+    status->cloud_chunks_dropped = cloud.audio_chunks_dropped;
+    status->cloud_turns_completed = cloud.turns_completed;
+    status->cloud_reconnects = cloud.reconnects;
 }
 
 static float calculate_zcr(int16_t *samples, int num_samples) {
@@ -639,25 +697,29 @@ static void mic_capture_task(void *pvParameters)
                         ESP_LOGI(TAG, "LOCAL BARGE-IN DETECTED! Halting playback...");
                         s31_led_status_set_state(S31_LED_STATE_BARGE_IN);
                         
-                        // Send BARGE_IN Control Packet
-                        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-                        if (sock >= 0) {
-                            struct sockaddr_in dest_addr;
-                            dest_addr.sin_addr.s_addr = current_pc_gateway_ip();
-                            dest_addr.sin_family = AF_INET;
-                            dest_addr.sin_port = htons(PC_GATEWAY_PORT);
-                            audio_frame_header_t hdr;
-                            memset(&hdr, 0, sizeof(hdr));
-                            hdr.magic[0] = 'C';
-                            hdr.magic[1] = 'O';
-                            hdr.version = 1;
-                            hdr.flags = 0x04; // BARGE_IN
-                            hdr.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
-                            if (dest_addr.sin_addr.s_addr != 0) {
-                                sendto(sock, &hdr, sizeof(hdr), 0,
-                                       (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+                        if (jafr_cloud_voice_is_direct()) {
+                            jafr_cloud_voice_barge_in();
+                        } else {
+                            // Send BARGE_IN Control Packet
+                            int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+                            if (sock >= 0) {
+                                struct sockaddr_in dest_addr;
+                                dest_addr.sin_addr.s_addr = current_pc_gateway_ip();
+                                dest_addr.sin_family = AF_INET;
+                                dest_addr.sin_port = htons(PC_GATEWAY_PORT);
+                                audio_frame_header_t hdr;
+                                memset(&hdr, 0, sizeof(hdr));
+                                hdr.magic[0] = 'C';
+                                hdr.magic[1] = 'O';
+                                hdr.version = 1;
+                                hdr.flags = 0x04; // BARGE_IN
+                                hdr.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+                                if (dest_addr.sin_addr.s_addr != 0) {
+                                    sendto(sock, &hdr, sizeof(hdr), 0,
+                                           (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+                                }
+                                close(sock);
                             }
-                            close(sock);
                         }
                         
                         s_consec_bargein = 0;
@@ -788,6 +850,13 @@ static void udp_tx_task(void *pvParameters)
         size_t item_size = 0;
         void *item = xRingbufferReceive(tx_ringbuf, &item_size, portMAX_DELAY);
         if (item != NULL && item_size == FRAME_PAYLOAD_SIZE) {
+            if (jafr_cloud_voice_is_direct()) {
+                jafr_cloud_voice_submit_pcm((const int16_t *)item, SAMPLES_PER_FRAME);
+                vRingbufferReturnItem(tx_ringbuf, item);
+                g_tx_packets++;
+                g_tx_bytes += item_size;
+                continue;
+            }
             bool ptt_active = ptt_debounce_update();
             if (ptt_active) {
                 hdr->flags = 0x02; // Bit 1: PTT Active
@@ -904,6 +973,9 @@ static void udp_rx_task(void *pvParameters)
                     ESP_LOGI(TAG, "Gateway synchronized conversation state: %u", state_id);
                 }
             } else if (hdr->magic[0] == 'A' && hdr->magic[1] == 'U') {
+                if (jafr_cloud_voice_is_direct()) {
+                    continue;
+                }
                 g_rx_packets++;
                 g_rx_bytes += len;
                 last_rx_time = esp_timer_get_time();
@@ -1148,19 +1220,24 @@ void app_main(void)
     if (eth_err != ESP_OK) {
         ESP_LOGW(TAG, "Ethernet unavailable: %s", esp_err_to_name(eth_err));
     }
-    esp_err_t web_err = jafr_webui_start();
-    if (web_err != ESP_OK) {
-        ESP_LOGW(TAG, "Web control deck unavailable: %s", esp_err_to_name(web_err));
-    }
     esp_err_t ble_audio_err = jafr_ble_audio_init();
     if (ble_audio_err != ESP_OK) {
         ESP_LOGW(TAG, "DualEye BLE audio unavailable; S31 speaker fallback remains active: %s",
                  esp_err_to_name(ble_audio_err));
     }
+    esp_err_t cloud_err = jafr_cloud_voice_init(route_response_pcm, cloud_state_changed);
+    if (cloud_err != ESP_OK) {
+        ESP_LOGW(TAG, "Direct cloud voice unavailable; PC gateway remains active: %s",
+                 esp_err_to_name(cloud_err));
+    }
+    esp_err_t web_err = jafr_webui_start();
+    if (web_err != ESP_OK) {
+        ESP_LOGW(TAG, "Web control deck unavailable: %s", esp_err_to_name(web_err));
+    }
 
     if (mic_codec_dev) {
         xTaskCreatePinnedToCore(mic_capture_task, "mic_capture", 4096, NULL, 5, NULL, 0);
-        xTaskCreatePinnedToCore(udp_tx_task, "udp_tx", 4096, NULL, 4, NULL, 1);
+        xTaskCreatePinnedToCore(udp_tx_task, "audio_uplink", 8192, NULL, 4, NULL, 1);
         xTaskCreatePinnedToCore(udp_rx_task, "udp_rx", 4096, NULL, 4, NULL, 1);
         xTaskCreatePinnedToCore(gateway_rediscovery_task, "gw_discovery", 3072, NULL, 2, NULL, 0);
         xTaskCreatePinnedToCore(telemetry_task, "telemetry", 3072, NULL, 2, NULL, 0);
