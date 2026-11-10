@@ -29,7 +29,9 @@ The immutable accepted baseline is `checkpoint-2026-11-07`. Experimental work mu
 
 1. Preserve the verified checkpoint. **Accepted.**
 2. Test DualEye local speaker. **Accepted at DualEye `e11f247`, parent `612cb2e`.**
-3. Prove S31-to-DualEye BLE audio while eyes animate. **Experimental baseline frozen on `feature/m2-ble-gatt-audio`; automated gate passed and DualEye playback/animation were physically confirmed.**
+3. Prove S31-to-DualEye BLE audio while eyes animate. **Experimental baseline
+   frozen at S31 `f8dacde` and DualEye `904212b`; automated gate passed and
+   DualEye playback/animation were physically confirmed.**
 4. Prove ordinary Bluetooth earbuds via A2DP.
 5. Add WebUI speaker selection and defaults.
 6. Implement direct S31-to-cloud conversation. **Implemented on isolated
