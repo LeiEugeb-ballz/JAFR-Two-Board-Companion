@@ -6,12 +6,14 @@
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
+#include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
 #include "nvs.h"
@@ -27,19 +29,37 @@
 #define CLOUD_RECONFIGURE BIT2
 #define CLOUD_TURN_READY BIT3
 #define CLOUD_BARGE_IN BIT4
+#define CLOUD_TRANSPORT_FAILED BIT5
+#define CLOUD_TTS_IDLE BIT6
 
 #define MIC_BATCH_SAMPLES 1600 /* 100 ms at 16 kHz */
 #define TRANSCRIPT_CAP 2048
 #define RESPONSE_CAP 3072
 #define WS_MESSAGE_CAP 12288
+#define HISTORY_TURNS 8
+#define HISTORY_TEXT_CAP 220
+#define PERSONA_CAP 1536
+#define FACTS_CAP 768
+#define PLAYBACK_STREAM_BYTES 12288
+#define PLAYBACK_READ_SAMPLES 640
+#define FAILURE_THRESHOLD 3
 
 static const char *TAG = "JAFR_CLOUD";
-static const char *SYSTEM_PROMPT =
+static const char *DEFAULT_PERSONA =
     "You are Jaf-R, pronounced Jafr: Bladder's sharp British desktop companion and robotics co-pilot. "
-    "Speak naturally, warmly and confidently in one to three concise sentences. Light teasing is welcome. "
-    "Never describe yourself as an AI and never narrate LED colours. Your DualEye displays are your eyes; "
-    "their listening, thinking, speaking and emotional reactions happen automatically. Do not claim a tool "
-    "or physical action succeeded unless the device reports it.";
+    "Speak naturally, warmly and confidently. Light teasing is welcome. Your DualEye displays are your eyes; "
+    "their listening, thinking, speaking and emotional reactions happen automatically. Never describe yourself "
+    "as an AI, never narrate LED colours, and never claim a physical action succeeded unless the device reports it.";
+static const char *VOICE_RULES =
+    "Voice delivery rules: default to one to three short spoken sentences and front-load the answer. "
+    "Expand only when explicitly asked for detail, a story, or an explanation. Keep one idea per sentence. "
+    "Use natural contractions and punctuation that gives speech room to breathe. Never use markdown, lists, "
+    "URLs, emoji, stage directions, or document-like wording. Do not routinely ask whether the user wants more.";
+
+typedef struct {
+    char user[HISTORY_TEXT_CAP];
+    char assistant[HISTORY_TEXT_CAP];
+} history_turn_t;
 
 typedef struct {
     char *data;
@@ -56,8 +76,17 @@ typedef struct {
 
 static SemaphoreHandle_t s_lock;
 static EventGroupHandle_t s_events;
+static StreamBufferHandle_t s_playback_stream;
+static StaticStreamBuffer_t s_playback_stream_control;
+static uint8_t *s_playback_stream_storage;
+static TaskHandle_t s_playback_task;
 static jafr_cloud_status_t s_status;
 static char s_api_key[192];
+static char s_persona[PERSONA_CAP];
+static char s_facts[FACTS_CAP];
+static history_turn_t s_history[HISTORY_TURNS];
+static size_t s_history_start;
+static size_t s_history_count;
 static esp_websocket_client_handle_t s_stt;
 static esp_websocket_client_handle_t s_tts;
 static ws_message_t s_stt_message;
@@ -67,7 +96,14 @@ static size_t s_mic_count;
 static char s_transcript[TRANSCRIPT_CAP];
 static size_t s_transcript_len;
 static volatile int64_t s_turn_finalize_at_us;
+static volatile int64_t s_turn_end_us;
+static volatile int64_t s_chat_start_us;
+static volatile int64_t s_first_text_us;
+static volatile int64_t s_first_audio_us;
+static volatile int64_t s_retry_at_us;
 static volatile bool s_cancel_generation;
+static volatile bool s_stopping_websockets;
+static volatile bool s_pending_auth_failure;
 static jafr_cloud_audio_cb_t s_audio_cb;
 static jafr_cloud_state_cb_t s_state_cb;
 static int16_t s_resample_tail[2];
@@ -90,6 +126,93 @@ static void set_error(const char *message)
     xSemaphoreGive(s_lock);
     ESP_LOGE(TAG, "%s", message ? message : "unknown cloud error");
     if (s_state_cb) s_state_cb(JAFR_CLOUD_ERROR);
+}
+
+static void *cloud_malloc(size_t bytes)
+{
+    void *memory = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return memory ? memory : heap_caps_malloc(bytes, MALLOC_CAP_8BIT);
+}
+
+static void copy_compact(char *destination, size_t capacity, const char *source)
+{
+    if (!destination || capacity == 0) return;
+    destination[0] = '\0';
+    if (!source) return;
+    size_t out = 0;
+    bool pending_space = false;
+    while (*source && out + 1 < capacity) {
+        unsigned char c = (unsigned char)*source++;
+        if (c == '\r' || c == '\n' || c == '\t' || c == ' ') {
+            pending_space = out > 0;
+            continue;
+        }
+        if (pending_space && out + 1 < capacity) destination[out++] = ' ';
+        pending_space = false;
+        destination[out++] = (char)c;
+    }
+    destination[out] = '\0';
+}
+
+static void history_add(const char *user, const char *assistant)
+{
+    if (!user || !*user || !assistant || !*assistant) return;
+    size_t slot;
+    if (s_history_count < HISTORY_TURNS) {
+        slot = (s_history_start + s_history_count) % HISTORY_TURNS;
+        s_history_count++;
+    } else {
+        slot = s_history_start;
+        s_history_start = (s_history_start + 1) % HISTORY_TURNS;
+    }
+    copy_compact(s_history[slot].user, sizeof(s_history[slot].user), user);
+    copy_compact(s_history[slot].assistant, sizeof(s_history[slot].assistant), assistant);
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_status.history_turns = (uint32_t)s_history_count;
+    xSemaphoreGive(s_lock);
+}
+
+static void mark_direct_ready(void)
+{
+    EventBits_t bits = xEventGroupGetBits(s_events);
+    if ((bits & (CLOUD_READY_STT | CLOUD_READY_TTS)) !=
+        (CLOUD_READY_STT | CLOUD_READY_TTS)) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_status.direct_active = true;
+    s_status.fallback_active = false;
+    s_status.provisioning_required = false;
+    s_status.consecutive_failures = 0;
+    s_status.last_http_status = 0;
+    s_status.last_error[0] = '\0';
+    s_status.state = JAFR_CLOUD_LISTENING;
+    xSemaphoreGive(s_lock);
+    if (s_state_cb) s_state_cb(JAFR_CLOUD_LISTENING);
+}
+
+static void record_transport_failure(const char *message, int http_status)
+{
+    const bool auth_failure = http_status == 401 || http_status == 403;
+    uint32_t failures;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_status.state = JAFR_CLOUD_ERROR;
+    s_status.direct_active = false;
+    s_status.fallback_active = true;
+    s_status.last_http_status = http_status;
+    failures = ++s_status.consecutive_failures;
+    if (auth_failure) {
+        s_status.auth_failures++;
+        s_status.provisioning_required = true;
+    }
+    snprintf(s_status.last_error, sizeof(s_status.last_error), "%s",
+             message ? message : "cloud transport failure");
+    xSemaphoreGive(s_lock);
+    if (http_status) ESP_LOGE(TAG, "%s HTTP %d", message, http_status);
+    else ESP_LOGE(TAG, "%s", message ? message : "cloud transport failure");
+    if (s_state_cb) s_state_cb(JAFR_CLOUD_ERROR);
+    if (auth_failure || failures >= FAILURE_THRESHOLD) {
+        s_pending_auth_failure = auth_failure;
+        xEventGroupSetBits(s_events, CLOUD_TRANSPORT_FAILED);
+    }
 }
 
 const char *jafr_cloud_state_name(jafr_cloud_state_t state)
@@ -172,19 +295,35 @@ static void configure_tts(void)
     cJSON_Delete(root);
 }
 
+static void playback_task(void *arg)
+{
+    (void)arg;
+    int16_t samples[PLAYBACK_READ_SAMPLES];
+    while (true) {
+        size_t bytes = xStreamBufferReceive(s_playback_stream, samples, sizeof(samples),
+                                            pdMS_TO_TICKS(250));
+        if (bytes && s_audio_cb && !s_cancel_generation) {
+            s_audio_cb(samples, bytes / sizeof(int16_t));
+        }
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        s_status.playback_stack_free = uxTaskGetStackHighWaterMark(NULL);
+        xSemaphoreGive(s_lock);
+    }
+}
+
 static void dispatch_tts_pcm(const uint8_t *pcm, size_t bytes)
 {
     if (!s_audio_cb || !pcm || bytes < 2) return;
     size_t incoming = bytes / sizeof(int16_t);
     size_t total = s_resample_tail_count + incoming;
-    int16_t *combined = malloc(total * sizeof(int16_t));
+    int16_t *combined = cloud_malloc(total * sizeof(int16_t));
     if (!combined) return;
     memcpy(combined, s_resample_tail, s_resample_tail_count * sizeof(int16_t));
     memcpy(combined + s_resample_tail_count, pcm, incoming * sizeof(int16_t));
 
     size_t groups = total / 3;
     size_t out_count = groups * 2;
-    int16_t *out = malloc(out_count * sizeof(int16_t));
+    int16_t *out = cloud_malloc(out_count * sizeof(int16_t));
     if (!out) {
         free(combined);
         return;
@@ -202,7 +341,18 @@ static void dispatch_tts_pcm(const uint8_t *pcm, size_t bytes)
                s_resample_tail_count * sizeof(int16_t));
     }
     free(combined);
-    if (!s_cancel_generation && out_count) s_audio_cb(out, out_count);
+    if (!s_cancel_generation && out_count) {
+        const size_t out_bytes = out_count * sizeof(int16_t);
+        size_t queued = 0;
+        if (xStreamBufferSpacesAvailable(s_playback_stream) >= out_bytes) {
+            queued = xStreamBufferSend(s_playback_stream, out, out_bytes, 0);
+        }
+        if (queued != out_bytes) {
+            xSemaphoreTake(s_lock, portMAX_DELAY);
+            s_status.playback_queue_drops++;
+            xSemaphoreGive(s_lock);
+        }
+    }
     free(out);
 }
 
@@ -218,25 +368,36 @@ static void parse_tts_event(const char *json)
     if (strcmp(type->valuestring, "session.created") == 0) {
         configure_tts();
     } else if (strcmp(type->valuestring, "session.updated") == 0) {
-        xEventGroupSetBits(s_events, CLOUD_READY_TTS);
+        xEventGroupSetBits(s_events, CLOUD_READY_TTS | CLOUD_TTS_IDLE);
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_status.tts_connected = true;
         xSemaphoreGive(s_lock);
+        mark_direct_ready();
     } else if (strcmp(type->valuestring, "speech.audio.delta") == 0) {
         const cJSON *audio = cJSON_GetObjectItemCaseSensitive(root, "audio_data");
         if (cJSON_IsString(audio) && !s_cancel_generation) {
             size_t source_len = strlen(audio->valuestring);
             size_t cap = (source_len * 3) / 4 + 4;
-            uint8_t *decoded = malloc(cap);
+            uint8_t *decoded = cloud_malloc(cap);
             size_t decoded_len = 0;
             if (decoded && mbedtls_base64_decode(decoded, cap, &decoded_len,
                     (const unsigned char *)audio->valuestring, source_len) == 0) {
+                if (s_first_audio_us == 0) {
+                    s_first_audio_us = esp_timer_get_time();
+                    xSemaphoreTake(s_lock, portMAX_DELAY);
+                    s_status.text_to_first_audio_ms = s_first_text_us > 0
+                        ? (uint32_t)((s_first_audio_us - s_first_text_us) / 1000) : 0;
+                    s_status.total_first_audio_ms = s_turn_end_us > 0
+                        ? (uint32_t)((s_first_audio_us - s_turn_end_us) / 1000) : 0;
+                    xSemaphoreGive(s_lock);
+                }
                 set_state(JAFR_CLOUD_SPEAKING);
                 dispatch_tts_pcm(decoded, decoded_len);
             }
             free(decoded);
         }
     } else if (strcmp(type->valuestring, "speech.audio.done") == 0) {
+        xEventGroupSetBits(s_events, CLOUD_TTS_IDLE);
         if (!s_cancel_generation) {
             xSemaphoreTake(s_lock, portMAX_DELAY);
             s_status.turns_completed++;
@@ -246,7 +407,7 @@ static void parse_tts_event(const char *json)
     } else if (strcmp(type->valuestring, "error") == 0) {
         const cJSON *error = cJSON_GetObjectItemCaseSensitive(root, "error");
         const cJSON *message = error ? cJSON_GetObjectItemCaseSensitive(error, "message") : NULL;
-        set_error(cJSON_IsString(message) ? message->valuestring : "TTS service error");
+        record_transport_failure(cJSON_IsString(message) ? message->valuestring : "TTS service error", 0);
     }
     cJSON_Delete(root);
 }
@@ -267,7 +428,7 @@ static void parse_stt_event(const char *json)
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_status.stt_connected = true;
         xSemaphoreGive(s_lock);
-        set_state(JAFR_CLOUD_LISTENING);
+        mark_direct_ready();
     } else if (strcmp(type->valuestring, "transcription.text.delta") == 0) {
         const cJSON *text = cJSON_GetObjectItemCaseSensitive(root, "text");
         if (cJSON_IsString(text)) {
@@ -278,7 +439,10 @@ static void parse_stt_event(const char *json)
             }
         }
     } else if (strcmp(type->valuestring, "turn.start") == 0) {
-        if (s_status.state == JAFR_CLOUD_SPEAKING || s_status.state == JAFR_CLOUD_THINKING) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        jafr_cloud_state_t state = s_status.state;
+        xSemaphoreGive(s_lock);
+        if (state == JAFR_CLOUD_SPEAKING || state == JAFR_CLOUD_THINKING) {
             xEventGroupSetBits(s_events, CLOUD_BARGE_IN);
         }
         if (s_transcript_len == 0) s_transcript[0] = '\0';
@@ -286,11 +450,12 @@ static void parse_stt_event(const char *json)
     } else if (strcmp(type->valuestring, "turn.resume") == 0) {
         s_turn_finalize_at_us = 0;
     } else if (strcmp(type->valuestring, "turn.end") == 0) {
-        s_turn_finalize_at_us = esp_timer_get_time() + 400000;
+        s_turn_end_us = esp_timer_get_time();
+        s_turn_finalize_at_us = s_turn_end_us + 400000;
     } else if (strcmp(type->valuestring, "error") == 0) {
         const cJSON *error = cJSON_GetObjectItemCaseSensitive(root, "error");
         const cJSON *message = error ? cJSON_GetObjectItemCaseSensitive(error, "message") : NULL;
-        set_error(cJSON_IsString(message) ? message->valuestring : "STT service error");
+        record_transport_failure(cJSON_IsString(message) ? message->valuestring : "STT service error", 0);
     }
     cJSON_Delete(root);
 }
@@ -304,14 +469,20 @@ static void websocket_event(void *arg, esp_event_base_t base, int32_t event_id, 
     if (event_id == WEBSOCKET_EVENT_CONNECTED) {
         ESP_LOGI(TAG, "%s websocket connected", is_stt ? "STT" : "TTS");
     } else if (event_id == WEBSOCKET_EVENT_DISCONNECTED || event_id == WEBSOCKET_EVENT_CLOSED) {
+        if (s_stopping_websockets) return;
         xSemaphoreTake(s_lock, portMAX_DELAY);
         if (is_stt) s_status.stt_connected = false;
         else s_status.tts_connected = false;
+        s_status.direct_active = false;
+        s_status.fallback_active = true;
         s_status.reconnects++;
         xSemaphoreGive(s_lock);
-        xEventGroupClearBits(s_events, is_stt ? CLOUD_READY_STT : CLOUD_READY_TTS);
+        xEventGroupClearBits(s_events, is_stt ? CLOUD_READY_STT : (CLOUD_READY_TTS | CLOUD_TTS_IDLE));
     } else if (event_id == WEBSOCKET_EVENT_ERROR) {
-        set_error(is_stt ? "STT websocket transport error" : "TTS websocket transport error");
+        if (s_stopping_websockets) return;
+        int http_status = event ? event->error_handle.esp_ws_handshake_status_code : 0;
+        record_transport_failure(is_stt ? "STT websocket transport error" :
+                                           "TTS websocket transport error", http_status);
     } else if (event_id == WEBSOCKET_EVENT_DATA && event && event->op_code == 0x1) {
         if (ws_message_append(message, event)) {
             if (is_stt) parse_stt_event(message->data);
@@ -323,6 +494,7 @@ static void websocket_event(void *arg, esp_event_base_t base, int32_t event_id, 
 
 static void destroy_websockets(void)
 {
+    s_stopping_websockets = true;
     if (s_stt) {
         esp_websocket_client_stop(s_stt);
         esp_websocket_client_destroy(s_stt);
@@ -333,15 +505,23 @@ static void destroy_websockets(void)
         esp_websocket_client_destroy(s_tts);
         s_tts = NULL;
     }
-    xEventGroupClearBits(s_events, CLOUD_READY_STT | CLOUD_READY_TTS);
+    xEventGroupClearBits(s_events, CLOUD_READY_STT | CLOUD_READY_TTS | CLOUD_TTS_IDLE);
     xSemaphoreTake(s_lock, portMAX_DELAY);
     s_status.stt_connected = false;
     s_status.tts_connected = false;
+    s_status.direct_active = false;
+    s_status.fallback_active = s_status.mode == JAFR_VOICE_MODE_DIRECT;
     xSemaphoreGive(s_lock);
+    s_stopping_websockets = false;
 }
 
 static bool start_websockets(void)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_status.direct_active = false;
+    s_status.fallback_active = true;
+    s_status.state = JAFR_CLOUD_CONNECTING;
+    xSemaphoreGive(s_lock);
     char headers[240];
     snprintf(headers, sizeof(headers), "Authorization: Bearer %s\r\n", s_api_key);
     esp_websocket_client_config_t stt_config = {
@@ -408,6 +588,13 @@ static void handle_chat_sse_line(sse_context_t *ctx, const char *line)
     cJSON *delta = choice ? cJSON_GetObjectItemCaseSensitive(choice, "delta") : NULL;
     cJSON *content = delta ? cJSON_GetObjectItemCaseSensitive(delta, "content") : NULL;
     if (cJSON_IsString(content) && content->valuestring[0]) {
+        if (s_first_text_us == 0) {
+            s_first_text_us = esp_timer_get_time();
+            xSemaphoreTake(s_lock, portMAX_DELAY);
+            s_status.chat_to_first_text_ms = s_chat_start_us > 0
+                ? (uint32_t)((s_first_text_us - s_chat_start_us) / 1000) : 0;
+            xSemaphoreGive(s_lock);
+        }
         tts_append(content->valuestring);
         size_t len = strlen(content->valuestring);
         size_t room = sizeof(ctx->response) - ctx->response_len - 1;
@@ -449,10 +636,33 @@ static char *build_chat_request(const char *transcript)
     cJSON_AddNumberToObject(root, "temperature", 0.7);
     cJSON_AddNumberToObject(root, "max_tokens", 180);
     cJSON *messages = cJSON_AddArrayToObject(root, "messages");
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     cJSON *system = cJSON_CreateObject();
     cJSON_AddStringToObject(system, "role", "system");
-    cJSON_AddStringToObject(system, "content", SYSTEM_PROMPT);
+    cJSON_AddStringToObject(system, "content", s_persona[0] ? s_persona : DEFAULT_PERSONA);
     cJSON_AddItemToArray(messages, system);
+    system = cJSON_CreateObject();
+    cJSON_AddStringToObject(system, "role", "system");
+    cJSON_AddStringToObject(system, "content", VOICE_RULES);
+    cJSON_AddItemToArray(messages, system);
+    if (s_facts[0]) {
+        system = cJSON_CreateObject();
+        cJSON_AddStringToObject(system, "role", "system");
+        cJSON_AddStringToObject(system, "content", s_facts);
+        cJSON_AddItemToArray(messages, system);
+    }
+    for (size_t i = 0; i < s_history_count; ++i) {
+        const history_turn_t *turn = &s_history[(s_history_start + i) % HISTORY_TURNS];
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "role", "user");
+        cJSON_AddStringToObject(item, "content", turn->user);
+        cJSON_AddItemToArray(messages, item);
+        item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "role", "assistant");
+        cJSON_AddStringToObject(item, "content", turn->assistant);
+        cJSON_AddItemToArray(messages, item);
+    }
+    xSemaphoreGive(s_lock);
     cJSON *user = cJSON_CreateObject();
     cJSON_AddStringToObject(user, "role", "user");
     cJSON_AddStringToObject(user, "content", transcript);
@@ -465,11 +675,16 @@ static char *build_chat_request(const char *transcript)
 static bool run_chat_turn(const char *transcript)
 {
     if (!transcript || !*transcript) return false;
-    EventBits_t ready = xEventGroupWaitBits(s_events, CLOUD_READY_TTS, pdFALSE, pdTRUE,
+    EventBits_t ready = xEventGroupWaitBits(s_events, CLOUD_READY_TTS | CLOUD_TTS_IDLE,
+                                            pdFALSE, pdTRUE,
                                             pdMS_TO_TICKS(10000));
-    if (!(ready & CLOUD_READY_TTS)) {
-        set_error("TTS websocket not ready");
+    if ((ready & (CLOUD_READY_TTS | CLOUD_TTS_IDLE)) !=
+        (CLOUD_READY_TTS | CLOUD_TTS_IDLE)) {
+        record_transport_failure("TTS websocket did not become idle", 0);
         return false;
+    }
+    for (int i = 0; i < 100 && xStreamBufferBytesAvailable(s_playback_stream) > 0; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
     char *body = build_chat_request(transcript);
     if (!body) return false;
@@ -499,6 +714,17 @@ static bool run_chat_turn(const char *transcript)
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_header(client, "Accept", "text/event-stream");
     esp_http_client_set_post_field(client, body, strlen(body));
+    s_chat_start_us = esp_timer_get_time();
+    s_first_text_us = 0;
+    s_first_audio_us = 0;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_status.turn_to_chat_ms = s_turn_end_us > 0
+        ? (uint32_t)((s_chat_start_us - s_turn_end_us) / 1000) : 0;
+    s_status.chat_to_first_text_ms = 0;
+    s_status.text_to_first_audio_ms = 0;
+    s_status.total_first_audio_ms = 0;
+    xSemaphoreGive(s_lock);
+    xEventGroupClearBits(s_events, CLOUD_TTS_IDLE);
     set_state(JAFR_CLOUD_THINKING);
     s_cancel_generation = false;
     esp_err_t result = esp_http_client_perform(client);
@@ -507,17 +733,46 @@ static bool run_chat_turn(const char *transcript)
         ctx->line[ctx->len] = '\0';
         handle_chat_sse_line(ctx, ctx->line);
     }
-    if (result == ESP_OK && status == 200 && !s_cancel_generation) tts_flush();
-    if (result != ESP_OK && !s_cancel_generation) set_error("Mistral chat stream failed");
-    if (status != 200 && !s_cancel_generation) {
+    const bool completed = result == ESP_OK && status == 200 && !s_cancel_generation;
+    if (completed) {
+        tts_flush();
+        history_add(transcript, ctx->response);
+    } else if (s_cancel_generation) {
+        /* Drain the abandoned generation; audio deltas remain muted until done. */
+        tts_flush();
+    }
+    if (result != ESP_OK && status == 200 && !s_cancel_generation) {
+        record_transport_failure("Mistral chat stream failed", status);
+    } else if (status != 200 && !s_cancel_generation) {
         char error[64];
         snprintf(error, sizeof(error), "Mistral chat HTTP %d", status);
-        set_error(error);
+        record_transport_failure(error, status);
     }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_status.last_http_status = status;
+    xSemaphoreGive(s_lock);
     esp_http_client_cleanup(client);
     free(ctx);
     cJSON_free(body);
-    return result == ESP_OK && status == 200 && !s_cancel_generation;
+    return completed;
+}
+
+static bool direct_selected(void)
+{
+    bool selected;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    selected = s_status.mode == JAFR_VOICE_MODE_DIRECT;
+    xSemaphoreGive(s_lock);
+    return selected;
+}
+
+static bool key_is_configured(void)
+{
+    bool configured;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    configured = s_status.key_configured;
+    xSemaphoreGive(s_lock);
+    return configured;
 }
 
 static void cloud_manager_task(void *arg)
@@ -525,7 +780,7 @@ static void cloud_manager_task(void *arg)
     (void)arg;
     while (true) {
         EventBits_t bits = xEventGroupWaitBits(s_events,
-            CLOUD_RECONFIGURE | CLOUD_TURN_READY | CLOUD_BARGE_IN,
+            CLOUD_RECONFIGURE | CLOUD_TURN_READY | CLOUD_BARGE_IN | CLOUD_TRANSPORT_FAILED,
             pdTRUE, pdFALSE, pdMS_TO_TICKS(50));
 
         if (bits & CLOUD_BARGE_IN) {
@@ -533,16 +788,52 @@ static void cloud_manager_task(void *arg)
             s_resample_tail_count = 0;
             set_state(JAFR_CLOUD_LISTENING);
         }
+        if (bits & CLOUD_TRANSPORT_FAILED) {
+            destroy_websockets();
+            xSemaphoreTake(s_lock, portMAX_DELAY);
+            uint32_t failures = s_status.consecutive_failures;
+            const bool auth_failure = s_pending_auth_failure;
+            s_status.direct_active = false;
+            s_status.fallback_active = true;
+            xSemaphoreGive(s_lock);
+            if (auth_failure) {
+                s_retry_at_us = 0;
+            } else {
+                uint32_t shift = failures > 6 ? 6 : failures;
+                s_retry_at_us = esp_timer_get_time() + ((int64_t)1 << shift) * 1000000LL;
+            }
+            s_pending_auth_failure = false;
+        }
         if (bits & CLOUD_RECONFIGURE) {
             destroy_websockets();
             s_mic_count = 0;
             s_transcript_len = 0;
             s_transcript[0] = '\0';
-            if (jafr_cloud_voice_is_direct()) {
+            s_retry_at_us = 0;
+            if (direct_selected() && key_is_configured()) {
                 set_state(JAFR_CLOUD_CONNECTING);
-                if (!start_websockets()) set_error("Cloud websocket startup failed");
+                if (!start_websockets()) {
+                    record_transport_failure("Cloud websocket startup failed", 0);
+                    xEventGroupSetBits(s_events, CLOUD_TRANSPORT_FAILED);
+                }
+            } else if (direct_selected()) {
+                xSemaphoreTake(s_lock, portMAX_DELAY);
+                s_status.provisioning_required = true;
+                s_status.fallback_active = true;
+                s_status.direct_active = false;
+                xSemaphoreGive(s_lock);
+                set_error("Mistral key required - provisioning needed");
             } else {
                 set_state(JAFR_CLOUD_DISABLED);
+            }
+        }
+        if (s_retry_at_us && esp_timer_get_time() >= s_retry_at_us &&
+            direct_selected() && key_is_configured()) {
+            s_retry_at_us = 0;
+            set_state(JAFR_CLOUD_CONNECTING);
+            if (!start_websockets()) {
+                record_transport_failure("Cloud reconnect startup failed", 0);
+                xEventGroupSetBits(s_events, CLOUD_TRANSPORT_FAILED);
             }
         }
         if (s_turn_finalize_at_us && esp_timer_get_time() >= s_turn_finalize_at_us) {
@@ -567,12 +858,19 @@ static void load_config(void)
         nvs_get_u8(handle, "mode", &mode);
         size_t length = sizeof(s_api_key);
         if (nvs_get_str(handle, "api_key", s_api_key, &length) != ESP_OK) s_api_key[0] = '\0';
+        length = sizeof(s_persona);
+        if (nvs_get_str(handle, "persona", s_persona, &length) != ESP_OK) s_persona[0] = '\0';
+        length = sizeof(s_facts);
+        if (nvs_get_str(handle, "facts", s_facts, &length) != ESP_OK) s_facts[0] = '\0';
         nvs_close(handle);
     }
+    if (!s_persona[0]) snprintf(s_persona, sizeof(s_persona), "%s", DEFAULT_PERSONA);
     if (mode > JAFR_VOICE_MODE_DIRECT) mode = JAFR_VOICE_MODE_PC;
     s_status.mode = (jafr_voice_mode_t)mode;
     s_status.key_configured = s_api_key[0] != '\0';
-    if (!s_status.key_configured) s_status.mode = JAFR_VOICE_MODE_PC;
+    s_status.direct_active = false;
+    s_status.fallback_active = mode == JAFR_VOICE_MODE_DIRECT;
+    s_status.provisioning_required = mode == JAFR_VOICE_MODE_DIRECT && !s_status.key_configured;
 }
 
 esp_err_t jafr_cloud_voice_init(jafr_cloud_audio_cb_t audio_cb,
@@ -581,10 +879,25 @@ esp_err_t jafr_cloud_voice_init(jafr_cloud_audio_cb_t audio_cb,
     s_lock = xSemaphoreCreateMutex();
     s_events = xEventGroupCreate();
     if (!s_lock || !s_events) return ESP_ERR_NO_MEM;
+    s_playback_stream_storage = heap_caps_malloc(PLAYBACK_STREAM_BYTES + 1,
+                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_playback_stream_storage) {
+        s_playback_stream_storage = heap_caps_malloc(PLAYBACK_STREAM_BYTES + 1,
+                                                     MALLOC_CAP_8BIT);
+    }
+    if (!s_playback_stream_storage) return ESP_ERR_NO_MEM;
+    s_playback_stream = xStreamBufferCreateStatic(PLAYBACK_STREAM_BYTES, sizeof(int16_t),
+                                                   s_playback_stream_storage,
+                                                   &s_playback_stream_control);
+    if (!s_playback_stream) return ESP_ERR_NO_MEM;
     s_audio_cb = audio_cb;
     s_state_cb = state_cb;
     load_config();
     if (xTaskCreatePinnedToCore(cloud_manager_task, "cloud_voice", 12288, NULL, 4, NULL, 1) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xTaskCreatePinnedToCore(playback_task, "cloud_playback", 4096, NULL, 5,
+                                &s_playback_task, 1) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
     xEventGroupSetBits(s_events, CLOUD_RECONFIGURE);
@@ -595,7 +908,7 @@ bool jafr_cloud_voice_is_direct(void)
 {
     bool direct;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    direct = s_status.mode == JAFR_VOICE_MODE_DIRECT && s_status.key_configured;
+    direct = s_status.direct_active;
     xSemaphoreGive(s_lock);
     return direct;
 }
@@ -619,7 +932,7 @@ bool jafr_cloud_voice_submit_pcm(const int16_t *samples, size_t sample_count)
         sample_count -= take;
         if (s_mic_count == MIC_BATCH_SAMPLES) {
             size_t encoded_cap = ((sizeof(s_mic_batch) + 2) / 3) * 4 + 1;
-            unsigned char *encoded = malloc(encoded_cap);
+            unsigned char *encoded = cloud_malloc(encoded_cap);
             size_t encoded_len = 0;
             bool sent_ok = false;
             if (encoded && mbedtls_base64_encode(encoded, encoded_cap, &encoded_len,
@@ -672,12 +985,47 @@ esp_err_t jafr_cloud_voice_configure(jafr_voice_mode_t mode,
     if (clear_key) s_api_key[0] = '\0';
     else if (api_key && api_key[0]) snprintf(s_api_key, sizeof(s_api_key), "%s", api_key);
     s_status.key_configured = s_api_key[0] != '\0';
-    s_status.mode = (mode == JAFR_VOICE_MODE_DIRECT && !s_status.key_configured)
-        ? JAFR_VOICE_MODE_PC : mode;
+    s_status.mode = mode;
+    s_status.direct_active = false;
+    s_status.fallback_active = mode == JAFR_VOICE_MODE_DIRECT;
+    s_status.provisioning_required = mode == JAFR_VOICE_MODE_DIRECT && !s_status.key_configured;
+    s_status.consecutive_failures = 0;
+    s_status.last_http_status = 0;
     s_status.last_error[0] = '\0';
     xSemaphoreGive(s_lock);
     xEventGroupSetBits(s_events, CLOUD_RECONFIGURE);
     return ESP_OK;
+}
+
+esp_err_t jafr_cloud_voice_configure_persona(const char *persona, const char *facts)
+{
+    if (!s_lock || !persona || !facts) return ESP_ERR_INVALID_ARG;
+    if (strlen(persona) >= sizeof(s_persona) || strlen(facts) >= sizeof(s_facts)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("jafr_cloud", NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_set_str(handle, "persona", persona[0] ? persona : DEFAULT_PERSONA);
+    if (err == ESP_OK) err = nvs_set_str(handle, "facts", facts);
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    if (err != ESP_OK) return err;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    snprintf(s_persona, sizeof(s_persona), "%s", persona[0] ? persona : DEFAULT_PERSONA);
+    snprintf(s_facts, sizeof(s_facts), "%s", facts);
+    xSemaphoreGive(s_lock);
+    return ESP_OK;
+}
+
+void jafr_cloud_voice_get_persona(char *persona, size_t persona_size,
+                                  char *facts, size_t facts_size)
+{
+    if (!s_lock) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (persona && persona_size) snprintf(persona, persona_size, "%s", s_persona);
+    if (facts && facts_size) snprintf(facts, facts_size, "%s", s_facts);
+    xSemaphoreGive(s_lock);
 }
 
 void jafr_cloud_voice_get_status(jafr_cloud_status_t *status)

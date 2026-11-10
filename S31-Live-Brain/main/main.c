@@ -23,6 +23,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/ringbuf.h"
 #include "esp_system.h"
+#include "esp_heap_caps.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_check.h"
@@ -123,6 +124,18 @@ static volatile jafr_audio_route_t g_audio_route = JAFR_AUDIO_ROUTE_AUTO;
 // Network byte order. Zero means automatic discovery has not completed.
 // The ACK receiver updates this from the packet source.
 static volatile uint32_t g_pc_gateway_ip = 0;
+static volatile uint32_t g_allocation_failures = 0;
+static volatile uint32_t g_last_failed_allocation = 0;
+static volatile uint32_t g_last_failed_caps = 0;
+static volatile uint32_t g_status_requests = 0;
+
+static void IRAM_ATTR allocation_failed(size_t size, uint32_t caps, const char *function_name)
+{
+    (void)function_name;
+    g_allocation_failures++;
+    g_last_failed_allocation = (uint32_t)size;
+    g_last_failed_caps = caps;
+}
 
 static void route_response_pcm(const int16_t *samples, size_t sample_count)
 {
@@ -303,6 +316,7 @@ void jafr_network_get_web_status(jafr_web_status_t *status)
         return;
     }
     memset(status, 0, sizeof(*status));
+    g_status_requests++;
     snprintf(status->wifi_ip, sizeof(status->wifi_ip), "waiting");
     esp_netif_t *wifi = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_ip_info_t info;
@@ -327,6 +341,16 @@ void jafr_network_get_web_status(jafr_web_status_t *status)
     status->rx_packets = g_rx_packets;
     status->mic_rms = g_last_mic_rms;
     status->free_heap = esp_get_free_heap_size();
+    const uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    status->internal_free = heap_caps_get_free_size(internal_caps);
+    status->internal_minimum = heap_caps_get_minimum_free_size(internal_caps);
+    status->internal_largest = heap_caps_get_largest_free_block(internal_caps);
+    status->psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    status->psram_minimum = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    status->allocation_failures = g_allocation_failures;
+    status->last_failed_allocation = g_last_failed_allocation;
+    status->last_failed_caps = g_last_failed_caps;
+    status->status_requests = g_status_requests;
     jafr_ble_audio_status_t ble = {0};
     jafr_ble_audio_get_status(&ble);
     status->ble_audio_initialized = ble.initialized;
@@ -350,12 +374,26 @@ void jafr_network_get_web_status(jafr_web_status_t *status)
     snprintf(status->cloud_state, sizeof(status->cloud_state), "%s",
              jafr_cloud_state_name(cloud.state));
     status->cloud_key_configured = cloud.key_configured;
+    status->cloud_direct_active = cloud.direct_active;
+    status->cloud_fallback_active = cloud.fallback_active;
+    status->cloud_provisioning_required = cloud.provisioning_required;
     status->cloud_stt_connected = cloud.stt_connected;
     status->cloud_tts_connected = cloud.tts_connected;
     status->cloud_chunks_sent = cloud.audio_chunks_sent;
     status->cloud_chunks_dropped = cloud.audio_chunks_dropped;
+    status->cloud_playback_drops = cloud.playback_queue_drops;
     status->cloud_turns_completed = cloud.turns_completed;
+    status->cloud_history_turns = cloud.history_turns;
     status->cloud_reconnects = cloud.reconnects;
+    status->cloud_failures = cloud.consecutive_failures;
+    status->cloud_auth_failures = cloud.auth_failures;
+    status->cloud_turn_to_chat_ms = cloud.turn_to_chat_ms;
+    status->cloud_chat_to_text_ms = cloud.chat_to_first_text_ms;
+    status->cloud_text_to_audio_ms = cloud.text_to_first_audio_ms;
+    status->cloud_total_audio_ms = cloud.total_first_audio_ms;
+    status->cloud_playback_stack = cloud.playback_stack_free;
+    status->cloud_last_http_status = cloud.last_http_status;
+    snprintf(status->cloud_last_error, sizeof(status->cloud_last_error), "%s", cloud.last_error);
 }
 
 static float calculate_zcr(int16_t *samples, int num_samples) {
@@ -1177,6 +1215,7 @@ static void telemetry_task(void *pvParameters)
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(heap_caps_register_failed_alloc_callback(allocation_failed));
     vTaskDelay(pdMS_TO_TICKS(1000));
     ESP_LOGI(TAG, "==================================================");
     ESP_LOGI(TAG, "ESP32-S31 PHASE 4B: STANDALONE STATUS LED SYSTEM");

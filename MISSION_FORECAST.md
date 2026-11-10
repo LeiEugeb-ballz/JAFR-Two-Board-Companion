@@ -52,6 +52,14 @@ The immutable accepted baseline is `checkpoint-2026-11-07`. Experimental work mu
   next turn; reconnect and API failure return to a usable state.
 - WebUI never returns/logs the API key. Plain-NVS and HTTP provisioning remain
   known security limitations until a secure provisioning milestone is accepted.
+- Direct mode becomes active only after both realtime session handshakes. A
+  missing key, 401 or 403 visibly selects fallback/provisioning state instead
+  of leaving a dead direct session.
+- Direct conversation keeps at most eight compact turns in RAM. Persona and
+  accepted facts persist independently and are editable without rebuilding.
+- Audio playback is queued outside network callbacks. First-audio latency,
+  internal heap floor/largest block, allocation failures and playback drops are
+  visible acceptance evidence. Device AEC stays disabled pending measurement.
 - Heap, dropped chunks, reconnects, response latency and eye animation are
   measured on hardware before merge or PC-independent acceptance.
 

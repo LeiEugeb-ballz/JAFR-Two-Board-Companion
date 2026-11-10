@@ -41,6 +41,12 @@ def source_gate(results: list[dict[str, object]]) -> None:
         "TTS PCM delta": '"speech.audio.delta"',
         "TLS certificate bundle": "esp_crt_bundle_attach",
         "write-only NVS key": 'nvs_set_str(handle, "api_key", api_key)',
+        "bounded rolling memory": "#define HISTORY_TURNS 8",
+        "persona stored separately": 'nvs_set_str(handle, "persona", persona',
+        "non-blocking playback queue": "xStreamBufferSend(s_playback_stream",
+        "dual handshake activation": "mark_direct_ready",
+        "auth failure gate": "http_status == 401 || http_status == 403",
+        "latency telemetry": "total_first_audio_ms",
     }
     for label, token in required_cloud.items():
         require(results, label, token in cloud, token)
@@ -56,6 +62,8 @@ def source_gate(results: list[dict[str, object]]) -> None:
     require(results, "PC fallback retained", "jafr_cloud_voice_is_direct" in main and
             "sendto(sock" in main, "mic transport branches between direct cloud and UDP gateway")
     require(results, "WebUI voice endpoint", '"/api/voice"' in web, "POST /api/voice")
+    require(results, "WebUI persona endpoints", web.count('"/api/persona"') == 2,
+            "GET and POST /api/persona")
     status_body = web.split("static esp_err_t status_get", 1)[1].split("static esp_err_t", 1)[0]
     require(results, "API key absent from status JSON", '\\"api_key\\"' not in status_body,
             "status exposes only cloud_key_configured")
@@ -85,6 +93,10 @@ def live_probe(results: list[dict[str, object]], base_url: str) -> None:
         "voice_mode", "cloud_state", "cloud_key_configured", "cloud_stt_connected",
         "cloud_tts_connected", "cloud_chunks_sent", "cloud_chunks_dropped",
         "cloud_turns_completed", "audio_route", "audio_output", "espnow_ready",
+        "cloud_direct_active", "cloud_fallback_active", "cloud_provisioning_required",
+        "cloud_playback_drops", "cloud_history_turns", "cloud_failures",
+        "cloud_total_audio_ms", "cloud_last_error", "internal_free",
+        "internal_minimum", "internal_largest", "allocation_failures",
     }
     missing = sorted(required.difference(status))
     require(results, "live status schema", not missing,

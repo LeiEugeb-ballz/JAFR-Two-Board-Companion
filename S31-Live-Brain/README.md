@@ -35,13 +35,23 @@ running before the November 2026 network and control-plane work.
   the accepted S31/DualEye speaker selector is reused
 - WebUI voice-mode selection and write-only key provisioning through
   `POST /api/voice`; status reports connection/counter state, never the key
+- bounded eight-turn direct-mode RAM memory (about 3.5 KB maximum), with no
+  summarizer call and no per-turn NVS writes
+- runtime persona and accepted-facts editing through `GET/POST /api/persona`;
+  `memory.txt` can be imported by the browser and is trimmed to the device cap
+- direct mode is declared active only after both realtime STT and TTS session
+  handshakes; missing/invalid credentials stay visibly degraded to PC fallback
+- queued TTS playback keeps codec writes out of WebSocket callbacks; the WebUI
+  exposes first-audio latency, reconnect/failure counters, playback drops,
+  internal/PSRAM heap floors, largest internal block and allocation failures
 
 Bluetooth earbud output is a planned isolated feature. It is not included in
-this firmware yet. Direct-cloud mode is build-verified only: it has not been
-flashed or exercised against the live board/API. This first revision is
-single-turn (no durable direct-mode conversation memory), stores the key in
-ordinary NVS, and provisions it over the board's HTTP-only local WebUI. Those
-are explicit validation/security limits, not production claims.
+this firmware yet. Direct-cloud mode remains physically unaccepted until the
+live COM18/API/audio test is completed. Conversation memory is intentionally
+RAM-only and is lost at restart; persona/facts and the key are persisted in
+ordinary NVS. Provisioning uses the board's HTTP-only local WebUI. Those are
+explicit validation/security limits, not production claims. Device AEC remains
+disabled until a hardware measurement proves acceptable internal-SRAM margin.
 
 ## Local conversation memory
 
@@ -71,9 +81,9 @@ space in `Project TakeOver`. Normal compiler dependency tracking and ccache stay
 enabled.
 
 The direct-cloud branch builds
-`build_s31_release_j/JAFR_S31_Live_Brain.bin` at 1,807,136 bytes (SHA256
-`307AD74739BBC6A6B705C25B9FADA53C96FA23B33DFBAFC53B0CA4F3F9E0E050`).
-It has 43% of the 3 MB app partition free. This image is not yet flashed. The
+`build_s31_release_j/JAFR_S31_Live_Brain.bin` at 1,820,896 bytes (SHA256
+`34D7669B6583F6587BDA52FAC4AD02EDE6C6DB05BB8E85D0E990A3AA63C69AA6`).
+It has 42% of the 3 MB app partition free. This image is not yet flashed. The
 previous watchdog revision was flashed and boot-accepted on COM18 on
 2026-11-07; esptool verified that earlier written hash and the board then
 reported healthy WebUI/ESP-NOW status.
