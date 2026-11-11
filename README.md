@@ -9,6 +9,14 @@ Flashed carry-on point, physically accepted by the owner on 2026-11-11. See [ins
 - The owner accepts the prior DualEye ESP-NOW reactions and smooth eye rendering with and without gyro. Preserve those accepted implementations.
 - BLE speaker routing is deferred. Do not enable or expand it as part of this baseline.
 
+## DualEye standalone single-board voice (separate experiment)
+
+The [standalone voice checkpoint](docs/DUALEYE-STANDALONE.md) records the 11 November 2026 accepted `DualEye-V2` onboard mic → Voxtral transcription → Mistral response → Voxtral TTS → onboard speaker pipeline. The three recorded turns at commit `8351b04` had zero playback gaps and I2S TX underruns, while gyro and eyes remained responsive (during-voice median 18.3 frame pairs/s). [Hardware evidence](evidence/20261111T184245Z-dualeye-standalone/summary.md).
+
+A subsequent preserved source commit, `88e6a23`, adds automatic repeated listening and a persistent microphone-mute control. That commit is backed up on `experiment/dualeye-standalone` but is **not covered by the earlier three-turn hardware acceptance evidence**. It must not be described as separately flashed or tested unless new evidence is recorded.
+
+**The S31 + ESP-NOW two-board baseline below remains a separate, preserved configuration.** The historical `DualEye-Live-Graphics` submodule pin is not moved as part of this standalone work.
+
 ## Reproduce the working set
 
 ```powershell
