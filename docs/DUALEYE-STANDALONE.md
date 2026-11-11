@@ -3,7 +3,8 @@
 **Date:** 2026-11-11 (SAST)  
 **Repository:** `LeiEugeb-ballz/JAFR-Two-Board-Companion`  
 **Implementation branch:** `experiment/dualeye-standalone`  
-**Verified implementation commit:** `8351b0499317dd73d2260a3633d0484e1168639d`  
+**Physically accepted firmware commit:** `8351b0499317dd73d2260a3633d0484e1168639d`  
+**Latest preserved source commit (not separately hardware-accepted):** `88e6a237b12925e56e905d0546eb47e50b72c273`  
 **Primary test record:** [11 November hardware acceptance](../evidence/20261111T184245Z-dualeye-standalone/summary.md)
 
 This is a **standalone firmware experiment** on the Waveshare DualEye board, **not** the two-board S31 + DualEye V2 release. The older V2 main-branch documentation and acceptance remain valid for that separate configuration. The historical `DualEye-Live-Graphics` submodule is a reference; `DualEye-V2` contains the standalone implementation.
@@ -23,7 +24,7 @@ Waveshare ESP32-S3 DualEye (SKU 32265)
 - This run required **no PC audio gateway** and **no ESP32-S31** for the conversation.
 - The ESP-NOW receiver was disabled during standalone acceptance. Do not describe this mode as simultaneously validating S31-to-eye expression transport.
 - Credentials were provisioned locally into NVS over USB, not committed to GitHub.
-- A LAN test control started voice turns. The web console also provides a `Start voice turn` action and `Speak now` state.
+- At the **accepted** revision `8351b04`, a LAN test control started voice turns, and the web console provided a `Start voice turn` action and `Speak now` state. The subsequent revision changes this interaction; see below.
 - Existing display DMA, artwork, eye rendering, animation and IMU were preserved relative to the V2 hardware baseline.
 
 ## Acceptance results recorded on physical hardware
@@ -45,6 +46,12 @@ The previous approximately two-second **opening audio breakup** was isolated to 
 
 End-to-end turn timing, from turn start: first TTS PCM at **15.19 s**, **15.17 s**, and **13.94 s** respectively; return to Ready at **20.95 s**, **20.29 s**, and **16.35 s**. These delays are distinct from the resolved audio-breakup symptom; the individual service-latency contributions were not measured.
 
+## Subsequent preserved changes (not covered by those acceptance measurements)
+
+On 11 November 2026, commit `88e6a23` backed up the last locally modified `WaveshareUncannyEyes.ino` and `console.html`. The committed firmware code now automatically attempts successive conversation sessions whenever credentials, network, clock and microphone state permit, with a two-second retry interval after a turn. The web console replaced the manual voice-start button with microphone mute/unmute; mute state is persisted in NVS under `mic-muted`. These behaviors were verified by inspecting the **source**, not by a new flash or acoustic/long-run test.
+
+Therefore the audio measurements above are evidence for `8351b04`, **not a physical acceptance statement for the latest `88e6a23` image**. Future recovery should preserve both commits and validate the automatic-loop/mute behavior before calling the later revision a fully accepted firmware release.
+
 ## Build and local operation
 
 - Firmware: `DualEye-V2`, using Pioarduino `55.03.39`, Arduino `3.3.9`, and Espressif WebSocket client `1.8.0`.
@@ -55,7 +62,7 @@ End-to-end turn timing, from turn start: first TTS PCM at **15.19 s**, **15.17 s
 - Historical rollback image SHA-256: `0D4CBDAFE9E00040C55FC35B816920F9A8C3DD09615A998CECD559FDBB4A1EBB`.
 - The rollback baseline tag is `v2-hardware-2026-11-11` at `c3864636285fb42b172a09a24b3da6fbf864ceb0`; keep it immutable.
 
-**Important:** The project directory can contain local uncommitted changes after this commit. A GitHub acceptance record proves the **committed** implementation at `8351b04`, not later edits that have not been separately reviewed or pushed. Before calling the workspace fully synchronized, verify both the parent repository and `DualEye-Live-Graphics` submodule status, including any submodule-local edits. Do not silently stage a dirty submodule or advance its pinned commit.
+**Repository checkout note:** The active source/UI changes were subsequently committed and pushed at `88e6a23`. The user's local `DualEye-Live-Graphics` historical-reference submodule still reported a large set of staged deletions under `xiaozhi-esp32`. The **parent submodule pointer remains pinned and unchanged in GitHub**. Do not commit those deletions or reset that checkout without establishing their origin; they are separate from the standalone firmware.
 
 ## Scope and recovery
 
@@ -66,4 +73,4 @@ End-to-end turn timing, from turn start: first TTS PCM at **15.19 s**, **15.17 s
 - Credential hardening, long-duration network resilience, and latency optimization: **not claimed as completed**.
 - No additional firmware change, flash, or acceptance test is implied by documentation edits alone.
 
-For troubleshooting or continuation, start with [the recorded evidence](../evidence/20261111T184245Z-dualeye-standalone/summary.md), the implementation at `8351b04`, and any subsequently saved local-only changes. Do not rerun the old stutter investigations as though their final DMA correction had never been validated.
+For continuation, start with [the recorded evidence](../evidence/20261111T184245Z-dualeye-standalone/summary.md), the accepted `8351b04` source and the subsequent backed-up `88e6a23` changes. Do not rerun the old stutter investigations as though the tested DMA correction had never been validated.
