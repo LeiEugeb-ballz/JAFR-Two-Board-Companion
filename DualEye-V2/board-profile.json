@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "board_id": "Waveshare ESP32-S3-DualEye-Touch-LCD-1.28, SKU 32265",
+  "chip": "esp32-s3",
+  "framework": "arduino",
+  "build_system": "platformio",
+  "project_dir": ".",
+  "allowed_gpio": [
+    8,
+    38,
+    39,
+    41,
+    42,
+    45,
+    46,
+    47,
+    48,
+    10,
+    11,
+    9,
+    12,
+    13,
+    14,
+    16
+  ],
+  "forbidden_gpio": {
+    "26": "flash",
+    "27": "flash",
+    "28": "flash",
+    "29": "flash",
+    "30": "flash",
+    "31": "flash",
+    "32": "flash",
+    "33": "PSRAM",
+    "34": "PSRAM",
+    "35": "PSRAM",
+    "36": "PSRAM",
+    "37": "PSRAM"
+  },
+  "restricted_gpio": {
+    "45": "board-wired LCD D/C and VDD_SPI strap at reset",
+    "46": "board-wired LCD1 backlight and boot strap at reset"
+  },
+  "pins": [
+    {
+      "name": "lcd_sclk",
+      "gpio": 41,
+      "direction": "output"
+    },
+    {
+      "name": "lcd_mosi",
+      "gpio": 42,
+      "direction": "output"
+    },
+    {
+      "name": "lcd_dc",
+      "gpio": 45,
+      "direction": "output"
+    },
+    {
+      "name": "lcd1_cs",
+      "gpio": 47,
+      "direction": "output"
+    },
+    {
+      "name": "lcd1_reset",
+      "gpio": 48,
+      "direction": "output"
+    },
+    {
+      "name": "lcd1_backlight",
+      "gpio": 46,
+      "direction": "output"
+    },
+    {
+      "name": "lcd2_cs",
+      "gpio": 38,
+      "direction": "output"
+    },
+    {
+      "name": "lcd2_reset",
+      "gpio": 8,
+      "direction": "output"
+    },
+    {
+      "name": "lcd2_backlight",
+      "gpio": 39,
+      "direction": "output"
+    },
+    {
+      "name": "imu_scl",
+      "gpio": 10,
+      "direction": "bidirectional"
+    },
+    {
+      "name": "imu_sda",
+      "gpio": 11,
+      "direction": "bidirectional"
+    },
+    {
+      "name": "amp_enable",
+      "gpio": 9,
+      "direction": "output"
+    },
+    {
+      "name": "i2s_mclk",
+      "gpio": 12,
+      "direction": "output"
+    },
+    {
+      "name": "i2s_bclk",
+      "gpio": 13,
+      "direction": "output"
+    },
+    {
+      "name": "i2s_word_select",
+      "gpio": 14,
+      "direction": "output"
+    },
+    {
+      "name": "i2s_dout",
+      "gpio": 16,
+      "direction": "output"
+    }
+  ]
+}
