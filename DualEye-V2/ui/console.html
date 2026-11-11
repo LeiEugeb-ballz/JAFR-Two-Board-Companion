@@ -104,8 +104,8 @@ footer{display:flex;justify-content:space-between;border-top:1px solid var(--lin
   </div>
 </details>
 <section class="panel"><div class="heading"><h2>Voice bay</h2><small class="chip" id="voice-state">Board speaker</small></div>
-<p class="help">Spoken reactions to tilt, a backward lean, and repeated turns. Microphone input is reserved.</p>
-<div class="actions"><button id="voice-switch" type="button">Mute voice</button><button data-action="voice-test" data-value="0">Test wow</button><button data-action="voice-test" data-value="1">Test sleep</button><button data-action="voice-test" data-value="2">Test dizzy</button><button data-action="voice-reverse" id="voice-reverse">Reverse tilt</button></div></section>
+<p class="help">Start a voice turn, then wait for Speak now before asking one short question.</p>
+<div class="actions"><button data-action="voice-turn" id="voice-turn" disabled>Start voice turn</button><button id="voice-switch" type="button">Mute voice</button><button data-action="voice-test" data-value="0">Test wow</button><button data-action="voice-test" data-value="1">Test sleep</button><button data-action="voice-test" data-value="2">Test dizzy</button></div></section>
 </div>
 </div>
 <footer><small>ESP32-S3 · GC9A01A ×2</small><small id="heap">Internal RAM —</small></footer>
@@ -212,8 +212,8 @@ function drawTrace(s){
 by("voice-switch").onclick=()=>act("voice",{v:lastState?.voice?0:1});
 function paint(s){
   by("voice-switch").textContent=s.voice?"Mute voice":"Enable voice";
-  by("voice-state").textContent=s.talk?"Speaking":s.voice?"Reactions on":"Voice off";
-  by("voice-reverse").setAttribute("aria-pressed",Boolean(s.reverse));
+  by("voice-turn").disabled=!s.voice||s.cloud!==2;
+  by("voice-state").textContent=s.talk?"Speaking":!s.voice?"Voice off":s.cloud===4?"Speak now":s.cloud===3?"Working":s.cloud===2?"Cloud ready":s.cloud===1?"Connecting":"Board speaker";
   const now=performance.now();
   if(now>=pendingModeUntil){mode=s.mode;showMode();}
   if(now>=tuningUntil){
