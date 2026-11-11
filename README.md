@@ -9,6 +9,12 @@ Flashed carry-on point, physically accepted by the owner on 2026-11-11. See [ins
 - The owner accepts the prior DualEye ESP-NOW reactions and smooth eye rendering with and without gyro. Preserve those accepted implementations.
 - BLE speaker routing is deferred. Do not enable or expand it as part of this baseline.
 
+## DualEye standalone single-board voice (separate experiment)
+
+The [standalone voice checkpoint](docs/DUALEYE-STANDALONE.md) documents the 11 November 2026 hardware-verified `DualEye-V2` microphone-to-Voxtral-to-Mistral-to-Voxtral-TTS pipeline, using only the Waveshare ESP32-S3 DualEye onboard microphone and speaker. Three clear spoken turns were accepted with zero final I2S TX underruns while the dual eyes and gyro remained active (during-voice median 18.3 frame pairs/s). The implementation was committed as `8351b04` on `experiment/dualeye-standalone`; its measured evidence is in [the standalone acceptance record](evidence/20261111T184245Z-dualeye-standalone/summary.md).
+
+**Do not confuse this standalone experiment with the flashed two-board V2 baseline above.** The S31 + ESP-NOW baseline, pinned graphics submodule, and its historical acceptance remain separate. Local edits after the standalone acceptance commit are not covered by its evidence and must be separately committed before considering the workspace fully synchronized.
+
 ## Reproduce the working set
 
 ```powershell
