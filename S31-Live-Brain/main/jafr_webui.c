@@ -7,6 +7,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 #include "esp_heap_caps.h"
 #include "cJSON.h"
 #include "jafr_webui.h"
@@ -212,6 +213,46 @@ static esp_err_t persona_post(httpd_req_t *req)
     }
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+
+static esp_err_t wifi_post(httpd_req_t *req)
+{
+    char content_type[32];
+    char body[640];
+    if (httpd_req_get_hdr_value_str(req, "Content-Type", content_type, sizeof(content_type)) != ESP_OK ||
+        strcmp(content_type, "application/json") != 0 || !req->content_len ||
+        req->content_len >= sizeof(body)) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Wi-Fi JSON required");
+    }
+    size_t received = 0;
+    while (received < req->content_len) {
+        int n = httpd_req_recv(req, body + received, req->content_len - received);
+        if (n <= 0) {
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Wi-Fi body read failed");
+        }
+        received += n;
+    }
+    body[received] = '\0';
+    cJSON *json = cJSON_ParseWithOpts(body, NULL, true);
+    const cJSON *ssid = cJSON_GetObjectItemCaseSensitive(json, "ssid");
+    const cJSON *password = cJSON_GetObjectItemCaseSensitive(json, "password");
+    wifi_config_t config = {0};
+    size_t ssid_len = cJSON_IsString(ssid) ? strlen(ssid->valuestring) : 0;
+    size_t pass_len = cJSON_IsString(password) ? strlen(password->valuestring) : 0;
+    if (!ssid_len || ssid_len > sizeof(config.sta.ssid) || pass_len < 8 || pass_len > 63) {
+        cJSON_Delete(json);
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID must be 1-32 bytes; password 8-63 bytes");
+    }
+    memcpy(config.sta.ssid, ssid->valuestring, ssid_len);
+    memcpy(config.sta.password, password->valuestring, pass_len);
+    config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+    cJSON_Delete(json);
+    if (esp_wifi_set_config(WIFI_IF_STA, &config) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Wi-Fi settings could not be saved");
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, "{\"ok\":true,\"restart_required\":true}");
 }
 
 static esp_err_t gateway_post(httpd_req_t *req)
@@ -434,6 +475,7 @@ esp_err_t jafr_webui_start(void)
         {.uri = "/", .method = HTTP_GET, .handler = root_get},
         {.uri = "/api/status", .method = HTTP_GET, .handler = status_get},
         {.uri = "/api/gateway", .method = HTTP_POST, .handler = gateway_post},
+        {.uri = "/api/wifi", .method = HTTP_POST, .handler = wifi_post},
         {.uri = "/api/mic", .method = HTTP_POST, .handler = mic_post},
         {.uri = "/api/audio", .method = HTTP_POST, .handler = audio_post},
         {.uri = "/api/voice", .method = HTTP_POST, .handler = voice_post},

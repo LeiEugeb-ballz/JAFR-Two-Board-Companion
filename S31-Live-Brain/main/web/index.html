@@ -38,6 +38,13 @@ h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.22em;color:var(--am
 <label class="label" for="ip">Manual IPv4 address</label><input id="ip" inputmode="decimal" placeholder="192.168.88.180" maxlength="15">
 <button class="primary" onclick="save()">Save route</button><button id="micmute" class="ghost" onclick="toggleMute()">MIC LIVE — CLICK TO MUTE</button><button class="ghost" onclick="restart()">Restart JAFR brain</button><div class="toast" id="toast"></div>
 <p class="hint">Automatic mode discovers the PC gateway at boot and follows its current address. Manual mode pins the route for controlled networks. Changes are stored on the board and take effect after restart.</p>
+<h2>Wi-Fi network</h2>
+<form id="wifi-form">
+<label class="label" for="wifi-ssid">Network name</label><input id="wifi-ssid" required maxlength="32" autocomplete="off">
+<label class="label" for="wifi-password">Wi-Fi password</label><input id="wifi-password" type="password" required minlength="8" maxlength="63" autocomplete="new-password">
+<button class="primary" type="submit">Save Wi-Fi network</button>
+</form>
+<p class="hint">Use a trusted local connection. Saving replaces the stored Wi-Fi network. After restarting, find the new DHCP address in the router or use the dedicated Ethernet connection.</p>
 <h2>Voice pipeline</h2><div class="mode"><button id="voice-pc" onclick="setVoiceMode('pc')">PC fallback</button><button id="voice-direct" onclick="setVoiceMode('direct')">Direct cloud</button></div>
 <label class="label" for="cloudkey">Mistral API key (write only)</label><input id="cloudkey" type="password" autocomplete="new-password" placeholder="Leave blank to keep saved key" maxlength="191">
 <button class="primary" onclick="saveVoiceMode()">Save voice pipeline</button><button class="ghost" onclick="clearCloudKey()">Clear saved cloud key</button><p class="hint">Direct mode streams 16 kHz microphone audio to Mistral, streams reply text into realtime PCM speech, and plays it through the selected speaker. The key is never shown by this page. PC mode preserves the proven UDP gateway fallback.</p>
@@ -58,5 +65,21 @@ async function loadPersona(){const r=await fetch('/api/persona',{cache:'no-store
 async function savePersona(){const body=new URLSearchParams({persona:$('persona').value.trim(),facts:$('facts').value.trim()});const r=await fetch('/api/persona',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});$('toast').textContent=r.ok?'Persona and accepted facts saved':'Persona save failed: '+await r.text()}
 async function importMemory(input){const file=input.files&&input.files[0];if(!file)return;const text=(await file.text()).replace(/\s+/g,' ').trim();$('facts').value=text.slice(0,767);$('toast').textContent=text.length>767?'memory.txt imported and trimmed to device limit':'memory.txt staged; save to commit it'}
 async function restart(){if(!confirm('Restart the JAFR brain now?'))return;$('toast').textContent='Restarting…';await fetch('/api/restart',{method:'POST'});setTimeout(status,4000)}
+$('wifi-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const password = $('wifi-password');
+    try {
+        const response = await fetch('/api/wifi', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ssid: $('wifi-ssid').value, password: password.value})
+        });
+        $('toast').textContent = response.ok ? 'Wi-Fi saved. Restart to join the new network.' : await response.text();
+    } catch {
+        $('toast').textContent = 'Connection lost. Check which network the board joined.';
+    } finally {
+        password.value = '';
+    }
+});
 setMode('auto');setAudioRoute('auto',true);setVoiceMode('pc',true);loadPersona();status();setInterval(status,2000);
 </script></body></html>

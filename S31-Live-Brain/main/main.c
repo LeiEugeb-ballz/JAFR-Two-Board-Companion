@@ -77,9 +77,6 @@ static const char *TAG = "PHASE_3_NET_AUDIO";
 #define WIFI_PASSWORD       CONFIG_ESP_WIFI_PASSWORD
 
 // Static Network Topology Configuration
-#define ESP32_STATIC_IP     "192.168.88.242"
-#define ESP32_NETMASK       "255.255.255.0"
-#define ESP32_GATEWAY_IP    "192.168.88.1"
 
 #define S31_LOCAL_VAD_RMS_THRESHOLD   100.0f
 #define S31_BARGE_IN_RMS_THRESHOLD    250.0f
@@ -536,7 +533,7 @@ static void init_codec_device(void)
     }
 }
 
-static bool verify_network_reachability(void)
+static bool wifi_has_address(void)
 {
     ESP_LOGI(TAG, "Verifying network interface and gateway reachability...");
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -553,12 +550,12 @@ static bool verify_network_reachability(void)
 
     char ip_buf[16];
     esp_ip4addr_ntoa(&ip_info.ip, ip_buf, sizeof(ip_buf));
-    if (strcmp(ip_buf, ESP32_STATIC_IP) != 0) {
-        ESP_LOGE(TAG, "Reachability Check FAILED: Netif IP %s != Expected %s", ip_buf, ESP32_STATIC_IP);
+    if (ip_info.ip.addr == 0) {
+        ESP_LOGE(TAG, "Wi-Fi has no IPv4 address");
         return false;
     }
 
-    ESP_LOGI(TAG, "Network Reachability Check PASSED: Validated IPv4 %s on netif.", ip_buf);
+    ESP_LOGI(TAG, "Wi-Fi IPv4 lease: %s", ip_buf);
     return true;
 }
 
@@ -582,7 +579,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "==================================================");
         ESP_LOGI(TAG, "WIFI ASSOCIATED");
-        ESP_LOGI(TAG, "STATIC IP CONFIGURED: " IPSTR, IP2STR(&event->ip_info.ip));
+        ESP_LOGI(TAG, "DHCP IP CONFIGURED: " IPSTR, IP2STR(&event->ip_info.ip));
         ESP_LOGI(TAG, "NETMASK: " IPSTR, IP2STR(&event->ip_info.netmask));
         ESP_LOGI(TAG, "GATEWAY: " IPSTR, IP2STR(&event->ip_info.gw));
         ESP_LOGI(TAG, "PC GATEWAY: %s", PC_GATEWAY_IP_ADDR);
@@ -590,7 +587,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "UDP RX: local port %d", ESP_LISTEN_PORT);
         ESP_LOGI(TAG, "==================================================");
 
-        if (verify_network_reachability()) {
+        if (wifi_has_address()) {
             esp_err_t graphics_net_err = s31_graphics_network_ready();
             if (graphics_net_err != ESP_OK) {
                 ESP_LOGW(TAG, "Graphics ESP-NOW unavailable: %s", esp_err_to_name(graphics_net_err));
@@ -639,23 +636,9 @@ static void init_wifi(void)
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_t *netif = esp_netif_create_default_wifi_sta();
-
-    // Stop DHCP Client to apply Static IPv4 Network Topology
-    esp_err_t dhcp_err = esp_netif_dhcpc_stop(netif);
-    if (dhcp_err != ESP_OK && dhcp_err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
-        ESP_LOGW(TAG, "esp_netif_dhcpc_stop info: %s", esp_err_to_name(dhcp_err));
-    }
-
-    esp_netif_ip_info_t ip_info;
-    memset(&ip_info, 0, sizeof(esp_netif_ip_info_t));
-    ip_info.ip.addr = esp_ip4addr_aton(ESP32_STATIC_IP);
-    ip_info.gw.addr = esp_ip4addr_aton(ESP32_GATEWAY_IP);
-    ip_info.netmask.addr = esp_ip4addr_aton(ESP32_NETMASK);
-
-    ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ip_info));
-    ESP_LOGI(TAG, "Configured Static IPv4: ESP32=%s | Netmask=%s | Gateway=%s",
-             ESP32_STATIC_IP, ESP32_NETMASK, ESP32_GATEWAY_IP);
+    // The station's default DHCP client learns the address, router, and DNS
+    // from each Wi-Fi network. Ethernet retains its dedicated configuration.
+    esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -682,12 +665,15 @@ static void init_wifi(void)
         },
     };
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    wifi_config_t saved = {0};
+    if (esp_wifi_get_config(WIFI_IF_STA, &saved) != ESP_OK || !saved.sta.ssid[0]) {
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    }
     ESP_ERROR_CHECK(esp_wifi_start());
 
     perform_wifi_scan();
 
-    ESP_LOGI(TAG, "Connecting to Wi-Fi SSID '%s'...", WIFI_SSID);
+    ESP_LOGI(TAG, "Connecting to saved Wi-Fi network");
     ESP_ERROR_CHECK(esp_wifi_connect());
 }
 
