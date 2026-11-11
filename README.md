@@ -2,6 +2,15 @@
 
 Flashed carry-on point, physically accepted by the owner on 2026-11-11. See [installed firmware and tests](docs/V2-FLASHED.md). This is an ongoing hardware project, not a claim that every experimental feature is production certified.
 
+## Hardware acknowledgements
+
+Jaf-R is an independent community-built robotics and voice project. The hardware and reference resources provided by these manufacturers are central to the work:
+
+- **[Waveshare — ESP32-S3-DualEye-Touch-LCD-1.28](https://docs.waveshare.com/ESP32-S3-DualEye-Touch-LCD-1.28)** (SKU 32265): the physical DualEye platform, with two 240 × 240 round LCDs, an ESP32-S3, onboard microphone/codec circuitry, and peripheral hardware. Waveshare's board documentation and hardware examples helped inform the `DualEye-V2` integration. The same board supports both the two-board graphics configuration and the separately documented standalone voice experiment.
+- **[Espressif Systems — ESP32-S31](https://www.espressif.com/en/products/socs/esp32-s31)**: the processor platform used for the `S31-Live-Brain` voice controller in the two-board Jaf-R configuration. Espressif also develops the ESP32-S3 processor used on the Waveshare board and the [ESP-IDF software framework](https://docs.espressif.com/projects/esp-idf/en/stable/).
+
+Thank you to the Waveshare and Espressif engineering teams for making their hardware, technical documentation, and development resources available to builders. This project documents its own firmware changes and hardware tests; it is **not an official product, partnership, sponsorship, or endorsement** by either manufacturer. Existing upstream copyrights and software licenses remain in force.
+
 ## What works
 
 - S31 runs Mistral/Voxtral speech recognition, conversational responses and streamed speech directly over the network. A PC gateway is optional.
