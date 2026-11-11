@@ -24,3 +24,7 @@ S31-Live-Brain/pc_gateway/gateway.*.stdout.log
 S31-Live-Brain/pc_gateway/gateway.*.stderr.log
 S31-Live-Brain/pc_gateway/voice_pipeline.*.log
 
+
+# Generated PlatformIO state and host test caches
+**/.pio/
+**/.pytest_cache/

@@ -1,0 +1,177 @@
+{
+  "passed": 34,
+  "total": 34,
+  "ok": true,
+  "checks": [
+    {
+      "name": "STT websocket",
+      "passed": true,
+      "detail": "audio/transcriptions/realtime?model=voxtral-mini-transcribe-realtime-3"
+    },
+    {
+      "name": "TTS websocket",
+      "passed": true,
+      "detail": "audio/speech/realtime?model=voxtral-mini-tts-3-0"
+    },
+    {
+      "name": "streaming chat",
+      "passed": true,
+      "detail": "cJSON_AddBoolToObject(root, \"stream\", true)"
+    },
+    {
+      "name": "STT PCM append",
+      "passed": true,
+      "detail": "input_audio.append"
+    },
+    {
+      "name": "fixed microphone framing buffer",
+      "passed": true,
+      "detail": "static char s_mic_json["
+    },
+    {
+      "name": "turn completion",
+      "passed": true,
+      "detail": "\"turn.end\""
+    },
+    {
+      "name": "TTS text append",
+      "passed": true,
+      "detail": "\"input_text.append\""
+    },
+    {
+      "name": "TTS generation flush",
+      "passed": true,
+      "detail": "\"input_text.flush\""
+    },
+    {
+      "name": "TTS PCM delta",
+      "passed": true,
+      "detail": "\"speech.audio.delta\""
+    },
+    {
+      "name": "TLS certificate bundle",
+      "passed": true,
+      "detail": "esp_crt_bundle_attach"
+    },
+    {
+      "name": "write-only NVS key",
+      "passed": true,
+      "detail": "nvs_set_str(handle, \"api_key\", api_key)"
+    },
+    {
+      "name": "bounded rolling memory",
+      "passed": true,
+      "detail": "#define HISTORY_TURNS 8"
+    },
+    {
+      "name": "persona stored separately",
+      "passed": true,
+      "detail": "nvs_set_str(handle, \"persona\", persona"
+    },
+    {
+      "name": "bounded playback queue",
+      "passed": true,
+      "detail": "xStreamBufferSend(s_playback_stream"
+    },
+    {
+      "name": "streaming TTS delta decoder",
+      "passed": true,
+      "detail": "stream_tts_delta(event)"
+    },
+    {
+      "name": "Voxtral float PCM conversion",
+      "passed": true,
+      "detail": "sample * 32767.0f"
+    },
+    {
+      "name": "DNS preflight",
+      "passed": true,
+      "detail": "getaddrinfo(CLOUD_HOST"
+    },
+    {
+      "name": "manager owns WebSocket reconnect",
+      "passed": true,
+      "detail": ".disable_auto_reconnect = true"
+    },
+    {
+      "name": "mic write serialized with socket teardown",
+      "passed": true,
+      "detail": "s_mic_transport_lock"
+    },
+    {
+      "name": "DHCP DNS preserved",
+      "passed": true,
+      "detail": "resolver_has_ipv4(wifi, ESP_NETIF_DNS_MAIN"
+    },
+    {
+      "name": "dual handshake activation",
+      "passed": true,
+      "detail": "mark_direct_ready"
+    },
+    {
+      "name": "auth failure gate",
+      "passed": true,
+      "detail": "http_status == 401 || http_status == 403"
+    },
+    {
+      "name": "latency telemetry",
+      "passed": true,
+      "detail": "total_first_audio_ms"
+    },
+    {
+      "name": "24 kHz to 16 kHz conversion",
+      "passed": true,
+      "detail": "three 24 kHz samples produce two 16 kHz samples"
+    },
+    {
+      "name": "accepted audio route reused",
+      "passed": true,
+      "detail": "cloud playback uses the existing S31/DualEye selector"
+    },
+    {
+      "name": "eye states reused",
+      "passed": true,
+      "detail": "direct cloud state drives the existing ESP-NOW expression path"
+    },
+    {
+      "name": "PC fallback retained",
+      "passed": true,
+      "detail": "mic transport branches between direct cloud and UDP gateway"
+    },
+    {
+      "name": "WebUI voice endpoint",
+      "passed": true,
+      "detail": "POST /api/voice"
+    },
+    {
+      "name": "WebUI persona endpoints",
+      "passed": true,
+      "detail": "GET and POST /api/persona"
+    },
+    {
+      "name": "API key absent from status JSON",
+      "passed": true,
+      "detail": "status exposes only cloud_key_configured"
+    },
+    {
+      "name": "no hard-coded provider token",
+      "passed": true,
+      "detail": "source contains no credential-shaped literal"
+    },
+    {
+      "name": "release binary exists",
+      "passed": true,
+      "detail": "C:\\Users\\txr45\\Documents\\Project TakeOver\\November\\Jafr\\S31-Live-Brain\\build_s31_release_j\\JAFR_S31_Live_Brain.bin"
+    },
+    {
+      "name": "binary fits app partition",
+      "passed": true,
+      "detail": "1842512 / 3145728 bytes"
+    },
+    {
+      "name": "binary SHA256",
+      "passed": true,
+      "detail": "A349BF1E4541D56976B2E5880DB076BA4E7FE5804C8082DD5B5C6AEF48AB0E9B"
+    }
+  ]
+}

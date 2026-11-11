@@ -1,5 +1,7 @@
 # JAFR S31 Live Brain
 
+> Current status (2026-11-11): standalone Mistral/Voxtral audio accepted. See [V2 baseline](../docs/V2-BASELINE.md) for the current hash and gateway-off evidence. Older build/not-flashed statements below are historical, not current deployment status.
+
 This is the source tree matched to the ESP32-S31 Function-CoreBoard-1 formerly
 seen on COM18. The preserved `build_s31_uart` image matches the firmware that was
 running before the November 2026 network and control-plane work.
