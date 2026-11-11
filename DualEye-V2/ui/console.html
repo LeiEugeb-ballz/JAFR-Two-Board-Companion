@@ -103,9 +103,9 @@ footer{display:flex;justify-content:space-between;border-top:1px solid var(--lin
     <div class="preset-actions"><select id="slot" aria-label="Preset slot"><option value="0">Preset 1</option><option value="1">Preset 2</option><option value="2">Preset 3</option></select><button id="save">Save</button><button id="load">Load</button><button data-action="defaults">Defaults</button></div>
   </div>
 </details>
-<section class="panel"><div class="heading"><h2>Voice bay</h2><small class="chip" id="voice-state">Board speaker</small></div>
-<p class="help">Start a voice turn, then wait for Speak now before asking one short question.</p>
-<div class="actions"><button data-action="voice-turn" id="voice-turn" disabled>Start voice turn</button><button id="voice-switch" type="button">Mute voice</button><button data-action="voice-test" data-value="0">Test wow</button><button data-action="voice-test" data-value="1">Test sleep</button><button data-action="voice-test" data-value="2">Test dizzy</button></div></section>
+<section class="panel"><div class="heading"><h2>Voice bay</h2><small class="chip" id="voice-state" role="status">Checking voice</small></div>
+<p class="help">The mic listens again after each reply.</p>
+<div class="actions"><button id="mic-switch" type="button" disabled>Mute mic</button><button data-action="voice-test" data-value="0">Test wow</button><button data-action="voice-test" data-value="1">Test sleep</button><button data-action="voice-test" data-value="2">Test dizzy</button></div></section>
 </div>
 </div>
 <footer><small>ESP32-S3 · GC9A01A ×2</small><small id="heap">Internal RAM —</small></footer>
@@ -209,11 +209,27 @@ function drawTrace(s){
   const lines=[by("yaw-line"),by("pitch-line")];
   for(let i=0;i<2;i++)lines[i].setAttribute("points",samples.map((row,k)=>((36-samples.length+k)*144/35)+","+(22-row[i]*.44)).join(" "));
 }
-by("voice-switch").onclick=()=>act("voice",{v:lastState?.voice?0:1});
+const micSwitch=by("mic-switch"), voiceState=by("voice-state");
+const voiceLabels=["Voice unavailable","Connecting","Listening","Thinking","Listening"];
+let micBusy=false;
+function paintVoice(s){
+  const available=live&&typeof s?.micMuted==="boolean";
+  micSwitch.disabled=!available||micBusy;
+  micSwitch.textContent=s?.micMuted?"Unmute mic":"Mute mic";
+  const state=!live?"Link lost":s.micMuted?"Mic muted":s.talk?"Speaking":voiceLabels[s.cloud]??"Voice unavailable";
+  if(voiceState.textContent!==state)voiceState.textContent=state;
+}
+micSwitch.onclick=async()=>{
+  if(micSwitch.disabled)return;
+  const muted=!lastState.micMuted;
+  micBusy=true;
+  paintVoice(lastState);
+  if(await act("mic-mute",{v:Number(muted)}))lastState.micMuted=muted;
+  micBusy=false;
+  paintVoice(lastState);
+};
 function paint(s){
-  by("voice-switch").textContent=s.voice?"Mute voice":"Enable voice";
-  by("voice-turn").disabled=!s.voice||s.cloud!==2;
-  by("voice-state").textContent=s.talk?"Speaking":!s.voice?"Voice off":s.cloud===4?"Speak now":s.cloud===3?"Working":s.cloud===2?"Cloud ready":s.cloud===1?"Connecting":"Board speaker";
+  paintVoice(s);
   const now=performance.now();
   if(now>=pendingModeUntil){mode=s.mode;showMode();}
   if(now>=tuningUntil){
@@ -250,6 +266,7 @@ async function poll(){
     paint(lastState);
   }catch{
     live=false;by("connection").textContent="Link lost";by("connection").classList.remove("online");
+    paintVoice(lastState);
   }finally{setTimeout(poll,live?110:650);}
 }
 poll();
