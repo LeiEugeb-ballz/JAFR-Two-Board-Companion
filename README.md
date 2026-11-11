@@ -1,5 +1,17 @@
 # Jaf-R V2 - two-board voice companion
 
+## Standalone DualEye voice experiment — 11 November 2026
+
+The **single-board** Waveshare DualEye can independently perform onboard microphone capture → Voxtral transcription → Mistral reply → Voxtral TTS → onboard speaker, while eyes and gyro remain active. This is distinct from the two-board V2 firmware described below.
+
+- Implementation: [`experiment/dualeye-standalone`](https://github.com/LeiEugeb-ballz/JAFR-Two-Board-Companion/tree/experiment/dualeye-standalone), accepted commit `8351b04`.
+- [Standalone architecture, measured acceptance and recovery notes](docs/DUALEYE-STANDALONE.md).
+- [Original hardware acceptance evidence](evidence/20261111T184245Z-dualeye-standalone/summary.md).
+- Three recorded spoken turns: clear openings, zero I2S TX underruns; voice-period median 18.3 frame pairs/s.
+- The single-board experiment **does not supersede or modify** the accepted S31 + DualEye baseline; the historical graphics submodule pin remains untouched.
+
+
+
 Flashed carry-on point, physically accepted by the owner on 2026-11-11. See [installed firmware and tests](docs/V2-FLASHED.md). This is an ongoing hardware project, not a claim that every experimental feature is production certified.
 
 ## What works
