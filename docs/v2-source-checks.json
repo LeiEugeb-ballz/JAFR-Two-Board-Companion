@@ -1,6 +1,6 @@
 {
-  "passed": 34,
-  "total": 34,
+  "passed": 36,
+  "total": 36,
   "ok": true,
   "checks": [
     {
@@ -172,6 +172,16 @@
       "name": "binary SHA256",
       "passed": true,
       "detail": "A349BF1E4541D56976B2E5880DB076BA4E7FE5804C8082DD5B5C6AEF48AB0E9B"
+    },
+    {
+      "name": "live status schema",
+      "passed": true,
+      "detail": "complete"
+    },
+    {
+      "name": "live status does not expose key",
+      "passed": true,
+      "detail": "only configuration presence may be reported"
     }
   ]
 }

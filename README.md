@@ -1,6 +1,6 @@
 # Jaf-R V2 - two-board voice companion
 
-Working-project baseline, accepted by the owner on 2026-11-11. This is an ongoing hardware project, not a claim that every experimental feature is production certified.
+Flashed carry-on point, physically accepted by the owner on 2026-11-11. See [installed firmware and tests](docs/V2-FLASHED.md). This is an ongoing hardware project, not a claim that every experimental feature is production certified.
 
 ## What works
 
@@ -12,11 +12,11 @@ Working-project baseline, accepted by the owner on 2026-11-11. This is an ongoin
 ## Reproduce the working set
 
 ```powershell
-git clone --branch v2-baseline-2026-11-11 --recurse-submodules https://github.com/LeiEugeb-ballz/JAFR-Two-Board-Companion.git
+git clone --branch v2-hardware-2026-11-11 --recurse-submodules https://github.com/LeiEugeb-ballz/JAFR-Two-Board-Companion.git
 cd JAFR-Two-Board-Companion
 ```
 
-Open `Jafr.code-workspace`. S31 source is `S31-Live-Brain`; accepted historical DualEye source is the pinned `DualEye-Live-Graphics` submodule. Install their documented toolchains and provision network/provider credentials locally. Build caches, keys, NVS dumps and conversation archives are not shipped. Do not blindly flash either board: the current COM13 Field Console image is a separate renderer, not proven identical to the pinned submodule.
+Open `Jafr.code-workspace`. S31 source is `S31-Live-Brain`; installed DualEye source is `DualEye-V2`. The pinned `DualEye-Live-Graphics` submodule remains the historical reference. Install their documented toolchains and provision network/provider credentials locally. Build caches, keys, NVS dumps and conversation archives are not shipped. The current COM13 Field Console receiver is separate from the pinned submodule. Use `DualEye-V2/build.ps1` to build it; its radio channel must match S31 (currently 5).
 
 S31: `cd S31-Live-Brain; .\build_s31.ps1` builds without flashing. The board hosts its own WebUI at its DHCP address; the dedicated Ethernet configuration uses `http://192.168.77.2/`. Choose Direct Cloud, provision a Mistral key and use S31 primary output. Do not assume a previously recorded Wi-Fi IP remains current.
 

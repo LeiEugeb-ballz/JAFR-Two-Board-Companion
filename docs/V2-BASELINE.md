@@ -1,3 +1,5 @@
+> Superseded for installed hardware by [V2 flashed carry-on point](V2-FLASHED.md). This file preserves the earlier documentation-only freeze.
+
 # V2 working-project acceptance - 2026-11-11
 
 Owner requested closing the current phase and accepts the prior working ESP-NOW reactions, smooth gyro/no-gyro eyes and independent cloud conversation. This record accepts that report without inventing new hardware measurements.

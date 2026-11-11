@@ -1,3 +1,5 @@
+> Flashed and physically accepted for Blink/animation/gyro on 2026-11-11. See [measured record](../docs/V2-FLASHED.md) for limits and remaining checks.
+
 # Jaf-R V2 interaction candidate
 
 The source starts from the Uncanny Eyes Field Console, with its existing
@@ -8,8 +10,7 @@ speaker routing is outside this candidate.
 
 Before installing, identify the exact COM13 app and preserve a verified
 rollback image. The candidate's `JAFR_RADIO_CHANNEL` must match the S31's
-actual 2.4 GHz Wi-Fi channel. It currently defaults to the Field Console's
-original channel 6. If the S31 changes channel, align the two radios before
+actual 2.4 GHz Wi-Fi channel. It currently uses measured S31 channel 5. If the S31 changes channel, align the two radios before
 retesting. MAC-level delivery confirms the radio received a frame; visible
 Blink and the render command counter confirm that the application acted.
 
