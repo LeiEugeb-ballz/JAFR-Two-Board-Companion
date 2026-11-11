@@ -1,17 +1,5 @@
 # Jaf-R V2 - two-board voice companion
 
-## Standalone DualEye voice experiment — 11 November 2026
-
-The **single-board** Waveshare DualEye can independently perform onboard microphone capture → Voxtral transcription → Mistral reply → Voxtral TTS → onboard speaker, while eyes and gyro remain active. This is distinct from the two-board V2 firmware described below.
-
-- Implementation: [`experiment/dualeye-standalone`](https://github.com/LeiEugeb-ballz/JAFR-Two-Board-Companion/tree/experiment/dualeye-standalone), accepted commit `8351b04`.
-- [Standalone architecture, measured acceptance and recovery notes](docs/DUALEYE-STANDALONE.md).
-- [Original hardware acceptance evidence](evidence/20261111T184245Z-dualeye-standalone/summary.md).
-- Three recorded spoken turns: clear openings, zero I2S TX underruns; voice-period median 18.3 frame pairs/s.
-- The single-board experiment **does not supersede or modify** the accepted S31 + DualEye baseline; the historical graphics submodule pin remains untouched.
-
-
-
 Flashed carry-on point, physically accepted by the owner on 2026-11-11. See [installed firmware and tests](docs/V2-FLASHED.md). This is an ongoing hardware project, not a claim that every experimental feature is production certified.
 
 ## What works
@@ -23,9 +11,11 @@ Flashed carry-on point, physically accepted by the owner on 2026-11-11. See [ins
 
 ## DualEye standalone single-board voice (separate experiment)
 
-The [standalone voice checkpoint](docs/DUALEYE-STANDALONE.md) documents the 11 November 2026 hardware-verified `DualEye-V2` microphone-to-Voxtral-to-Mistral-to-Voxtral-TTS pipeline, using only the Waveshare ESP32-S3 DualEye onboard microphone and speaker. Three clear spoken turns were accepted with zero final I2S TX underruns while the dual eyes and gyro remained active (during-voice median 18.3 frame pairs/s). The implementation was committed as `8351b04` on `experiment/dualeye-standalone`; its measured evidence is in [the standalone acceptance record](evidence/20261111T184245Z-dualeye-standalone/summary.md).
+The [standalone voice checkpoint](docs/DUALEYE-STANDALONE.md) records the 11 November 2026 accepted `DualEye-V2` onboard mic → Voxtral transcription → Mistral response → Voxtral TTS → onboard speaker pipeline. The three recorded turns at commit `8351b04` had zero playback gaps and I2S TX underruns, while gyro and eyes remained responsive (during-voice median 18.3 frame pairs/s). [Hardware evidence](evidence/20261111T184245Z-dualeye-standalone/summary.md).
 
-**Do not confuse this standalone experiment with the flashed two-board V2 baseline above.** The S31 + ESP-NOW baseline, pinned graphics submodule, and its historical acceptance remain separate. Local edits after the standalone acceptance commit are not covered by its evidence and must be separately committed before considering the workspace fully synchronized.
+A subsequent preserved source commit, `88e6a23`, adds automatic repeated listening and a persistent microphone-mute control. That commit is backed up on `experiment/dualeye-standalone` but is **not covered by the earlier three-turn hardware acceptance evidence**. It must not be described as separately flashed or tested unless new evidence is recorded.
+
+**The S31 + ESP-NOW two-board baseline below remains a separate, preserved configuration.** The historical `DualEye-Live-Graphics` submodule pin is not moved as part of this standalone work.
 
 ## Reproduce the working set
 
