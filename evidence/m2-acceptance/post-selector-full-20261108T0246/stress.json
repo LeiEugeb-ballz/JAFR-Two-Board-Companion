@@ -1,0 +1,128 @@
+{
+  "after": {
+    "allocation_failures": 0,
+    "connected": true,
+    "decode_stack_free": 2328,
+    "decoded_frames": 0,
+    "eye_fps": 16.278,
+    "eye_frames": 8643,
+    "initialized": true,
+    "internal_free": 32595,
+    "internal_minimum": 19364,
+    "invalid_frames": 0,
+    "last_failed_caps": 0,
+    "last_failed_size": 0,
+    "last_sequence": 0,
+    "mtu": 247,
+    "ok": true,
+    "playback_drops": 0,
+    "psram_free": 7744948,
+    "queue_drops": 0,
+    "received_bytes": 0,
+    "received_frames": 0,
+    "render_both_us": 62717,
+    "render_eye1_us": 30990,
+    "sequence_gaps": 0,
+    "server_stack_free": 1928
+  },
+  "before": {
+    "allocation_failures": 0,
+    "connected": true,
+    "decode_stack_free": 2328,
+    "decoded_frames": 0,
+    "eye_fps": 16.927,
+    "eye_frames": 8551,
+    "initialized": true,
+    "internal_free": 35347,
+    "internal_minimum": 23792,
+    "invalid_frames": 0,
+    "last_failed_caps": 0,
+    "last_failed_size": 0,
+    "last_sequence": 0,
+    "mtu": 247,
+    "ok": true,
+    "playback_drops": 0,
+    "psram_free": 7744948,
+    "queue_drops": 0,
+    "received_bytes": 0,
+    "received_frames": 0,
+    "render_both_us": 59312,
+    "render_eye1_us": 30583,
+    "sequence_gaps": 0,
+    "server_stack_free": 1928
+  },
+  "checks": [
+    {
+      "expected": "== 0",
+      "name": "stress_http_failures",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "> 0",
+      "name": "stress_eye_frames_advance",
+      "observed": 92,
+      "pass": true
+    },
+    {
+      "expected": ">= 14.5",
+      "name": "stress_eye_fps",
+      "observed": 16.278,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "stress_allocation_failures",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": ">= 16384",
+      "name": "stress_internal_minimum",
+      "observed": 19364,
+      "pass": true
+    },
+    {
+      "expected": "true",
+      "name": "stress_connected",
+      "observed": true,
+      "pass": true
+    },
+    {
+      "expected": ">= 179",
+      "name": "stress_mtu",
+      "observed": 247,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "stress_invalid_frames_delta",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "stress_queue_drops_delta",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "stress_sequence_gaps_delta",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "stress_playback_drops_delta",
+      "observed": 0,
+      "pass": true
+    }
+  ],
+  "elapsed_seconds": 4.398,
+  "pass": true,
+  "phase": "stress",
+  "request_failures": [],
+  "requests": 50,
+  "started_utc": "2026-11-08T00:46:14.957445+00:00"
+}

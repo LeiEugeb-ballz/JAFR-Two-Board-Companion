@@ -1,0 +1,147 @@
+{
+  "checks": [
+    {
+      "expected": "s31",
+      "name": "route_s31_saved",
+      "observed": "s31",
+      "pass": true
+    },
+    {
+      "expected": "s31",
+      "name": "route_s31_active",
+      "observed": "s31",
+      "pass": true
+    },
+    {
+      "expected": "dualeye",
+      "name": "route_dualeye_saved",
+      "observed": "dualeye",
+      "pass": true
+    },
+    {
+      "expected": "true",
+      "name": "route_dualeye_ready",
+      "observed": true,
+      "pass": true
+    },
+    {
+      "expected": "dualeye",
+      "name": "route_dualeye_active",
+      "observed": "dualeye",
+      "pass": true
+    },
+    {
+      "expected": "auto",
+      "name": "route_auto_saved",
+      "observed": "auto",
+      "pass": true
+    },
+    {
+      "expected": "dualeye",
+      "name": "route_auto_prefers_dualeye",
+      "observed": "dualeye",
+      "pass": true
+    },
+    {
+      "expected": "restore auto",
+      "name": "route_original_restored",
+      "observed": null,
+      "pass": true
+    }
+  ],
+  "original_route": "auto",
+  "pass": true,
+  "phase": "route",
+  "physical_audio_confirmation": "pending",
+  "restore_error": null,
+  "snapshots": {
+    "auto": {
+      "audio_output": "dualeye",
+      "audio_route": "auto",
+      "ble_audio_connected": true,
+      "ble_audio_dropped": 0,
+      "ble_audio_failures": 0,
+      "ble_audio_initialized": true,
+      "ble_audio_mtu": 247,
+      "ble_audio_ready": true,
+      "ble_audio_scanning": false,
+      "ble_audio_sent": 0,
+      "espnow_accepted": 2,
+      "espnow_delivered": 2,
+      "espnow_delivery_failed": 0,
+      "espnow_failed": 0,
+      "espnow_last": "EXPRESSION error",
+      "espnow_ready": true,
+      "ethernet_ip": "192.168.77.2",
+      "ethernet_link": false,
+      "free_heap": 194172,
+      "gateway_discovered": false,
+      "gateway_ip": "0.0.0.0",
+      "gateway_mode": "auto",
+      "mic_muted": false,
+      "mic_rms": 18.6,
+      "rx_packets": 0,
+      "tx_packets": 0,
+      "wifi_ip": "192.168.88.242"
+    },
+    "dualeye": {
+      "audio_output": "dualeye",
+      "audio_route": "dualeye",
+      "ble_audio_connected": true,
+      "ble_audio_dropped": 0,
+      "ble_audio_failures": 0,
+      "ble_audio_initialized": true,
+      "ble_audio_mtu": 247,
+      "ble_audio_ready": true,
+      "ble_audio_scanning": false,
+      "ble_audio_sent": 0,
+      "espnow_accepted": 2,
+      "espnow_delivered": 2,
+      "espnow_delivery_failed": 0,
+      "espnow_failed": 0,
+      "espnow_last": "EXPRESSION error",
+      "espnow_ready": true,
+      "ethernet_ip": "192.168.77.2",
+      "ethernet_link": false,
+      "free_heap": 194156,
+      "gateway_discovered": false,
+      "gateway_ip": "0.0.0.0",
+      "gateway_mode": "auto",
+      "mic_muted": false,
+      "mic_rms": 26.8,
+      "rx_packets": 0,
+      "tx_packets": 0,
+      "wifi_ip": "192.168.88.242"
+    },
+    "s31": {
+      "audio_output": "s31",
+      "audio_route": "s31",
+      "ble_audio_connected": true,
+      "ble_audio_dropped": 0,
+      "ble_audio_failures": 0,
+      "ble_audio_initialized": true,
+      "ble_audio_mtu": 247,
+      "ble_audio_ready": true,
+      "ble_audio_scanning": false,
+      "ble_audio_sent": 0,
+      "espnow_accepted": 2,
+      "espnow_delivered": 2,
+      "espnow_delivery_failed": 0,
+      "espnow_failed": 0,
+      "espnow_last": "EXPRESSION error",
+      "espnow_ready": true,
+      "ethernet_ip": "192.168.77.2",
+      "ethernet_link": false,
+      "free_heap": 194180,
+      "gateway_discovered": false,
+      "gateway_ip": "0.0.0.0",
+      "gateway_mode": "auto",
+      "mic_muted": false,
+      "mic_rms": 26.3,
+      "rx_packets": 0,
+      "tx_packets": 0,
+      "wifi_ip": "192.168.88.242"
+    }
+  },
+  "started_utc": "2026-11-08T00:45:44.531924+00:00"
+}

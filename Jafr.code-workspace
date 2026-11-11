@@ -1,7 +1,11 @@
 {
   "folders": [
     {
-      "name": "DualEye firmware and control UI",
+      "name": "Installed DualEye V2 graphics",
+      "path": "DualEye-V2"
+    },
+    {
+      "name": "Historical pinned DualEye reference",
       "path": "DualEye-Live-Graphics"
     },
     {

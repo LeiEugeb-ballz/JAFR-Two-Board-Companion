@@ -1,0 +1,10 @@
+panel_frames_per_second=17.9 pairs_per_second=8.9 web=1 clients=0 commands=13 internal=200436
+panel_frames_per_second=40.4 pairs_per_second=20.2 web=1 clients=0 commands=13 internal=200436
+panel_frames_per_second=40.4 pairs_per_second=20.2 web=1 clients=0 commands=13 internal=200436
+
+PHASE before done
+panel_frames_per_second=40.6 pairs_per_second=20.3 web=1 clients=0 commands=14 internal=200436
+panel_frames_per_second=40.4 pairs_per_second=20.2 web=1 clients=0 commands=14 internal=200436
+panel_frames_per_second=39.8 pairs_per_second=19.9 web=1 clients=0 commands=14 internal=200436
+
+PHASE after done

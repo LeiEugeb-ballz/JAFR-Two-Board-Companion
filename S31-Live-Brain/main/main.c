@@ -23,6 +23,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/ringbuf.h"
 #include "esp_system.h"
+#include "esp_heap_caps.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_check.h"
@@ -43,6 +44,8 @@
 #include "s31_graphics.h"
 #include "jafr_webui.h"
 #include "jafr_ethernet.h"
+#include "jafr_ble_audio.h"
+#include "jafr_cloud_voice.h"
 
 static const char *TAG = "PHASE_3_NET_AUDIO";
 
@@ -74,9 +77,6 @@ static const char *TAG = "PHASE_3_NET_AUDIO";
 #define WIFI_PASSWORD       CONFIG_ESP_WIFI_PASSWORD
 
 // Static Network Topology Configuration
-#define ESP32_STATIC_IP     "192.168.88.242"
-#define ESP32_NETMASK       "255.255.255.0"
-#define ESP32_GATEWAY_IP    "192.168.88.1"
 
 #define S31_LOCAL_VAD_RMS_THRESHOLD   100.0f
 #define S31_BARGE_IN_RMS_THRESHOLD    250.0f
@@ -117,9 +117,66 @@ static bool g_local_speech_active = false;
 static volatile bool g_mic_muted = false;
 static bool g_gateway_auto = true;
 static uint32_t g_manual_gateway_ip = 0;
+static volatile jafr_audio_route_t g_audio_route = JAFR_AUDIO_ROUTE_AUTO;
 // Network byte order. Zero means automatic discovery has not completed.
 // The ACK receiver updates this from the packet source.
 static volatile uint32_t g_pc_gateway_ip = 0;
+static volatile uint32_t g_allocation_failures = 0;
+static volatile uint32_t g_last_failed_allocation = 0;
+static volatile uint32_t g_last_failed_caps = 0;
+static volatile uint32_t g_status_requests = 0;
+
+static void IRAM_ATTR allocation_failed(size_t size, uint32_t caps, const char *function_name)
+{
+    (void)function_name;
+    g_allocation_failures++;
+    g_last_failed_allocation = (uint32_t)size;
+    g_last_failed_caps = caps;
+}
+
+static void route_response_pcm(const int16_t *samples, size_t sample_count)
+{
+    if (samples == NULL || sample_count == 0) return;
+    bool routed_to_dualeye = false;
+    if (g_audio_route != JAFR_AUDIO_ROUTE_S31) {
+        routed_to_dualeye = jafr_ble_audio_submit_pcm(samples, sample_count);
+    }
+    if (!routed_to_dualeye && spk_codec_dev != NULL) {
+        esp_codec_dev_write(spk_codec_dev, (void *)samples, sample_count * sizeof(int16_t));
+    }
+    g_rx_packets++;
+    g_rx_bytes += sample_count * sizeof(int16_t);
+}
+
+static void cloud_state_changed(jafr_cloud_state_t state)
+{
+    switch (state) {
+    case JAFR_CLOUD_LISTENING:
+        s31_led_status_set_state(S31_LED_STATE_LISTENING);
+        s31_graphics_expression("listening");
+        break;
+    case JAFR_CLOUD_THINKING:
+        s31_led_status_set_state(S31_LED_STATE_THINKING);
+        s31_graphics_expression("thinking");
+        break;
+    case JAFR_CLOUD_SPEAKING:
+        s31_led_status_set_state(S31_LED_STATE_SPEAKING);
+        s31_graphics_expression("speaking");
+        break;
+    case JAFR_CLOUD_ERROR:
+        s31_led_status_set_state(S31_LED_STATE_ERROR);
+        s31_graphics_expression("error");
+        break;
+    case JAFR_CLOUD_CONNECTING:
+        s31_led_status_set_state(S31_LED_STATE_CONNECTING);
+        break;
+    case JAFR_CLOUD_DISABLED:
+    default:
+        s31_led_status_set_state(S31_LED_STATE_IDLE);
+        s31_graphics_expression("neutral");
+        break;
+    }
+}
 
 static inline uint32_t current_pc_gateway_ip(void)
 {
@@ -151,6 +208,33 @@ static void load_gateway_config(void)
     ESP_LOGI(TAG, "Gateway mode: %s, manual address: %s",
              g_gateway_auto ? "automatic discovery" : "manual",
              g_manual_gateway_ip ? ip : "not set");
+}
+
+static const char *audio_route_name(jafr_audio_route_t route)
+{
+    switch (route) {
+    case JAFR_AUDIO_ROUTE_S31:
+        return "s31";
+    case JAFR_AUDIO_ROUTE_DUALEYE:
+        return "dualeye";
+    case JAFR_AUDIO_ROUTE_AUTO:
+    default:
+        return "auto";
+    }
+}
+
+static void load_audio_config(void)
+{
+    nvs_handle_t handle;
+    uint8_t route = JAFR_AUDIO_ROUTE_AUTO;
+    if (nvs_open("jafr_audio", NVS_READONLY, &handle) == ESP_OK) {
+        if (nvs_get_u8(handle, "route", &route) != ESP_OK || route > JAFR_AUDIO_ROUTE_DUALEYE) {
+            route = JAFR_AUDIO_ROUTE_AUTO;
+        }
+        nvs_close(handle);
+    }
+    g_audio_route = (jafr_audio_route_t)route;
+    ESP_LOGI(TAG, "Response audio route: %s", audio_route_name(g_audio_route));
 }
 
 esp_err_t jafr_network_set_gateway_config(bool automatic, const char *ip)
@@ -195,12 +279,41 @@ void jafr_audio_set_mic_muted(bool muted)
     ESP_LOGI(TAG, "Microphone transport %s", muted ? "MUTED" : "LIVE");
 }
 
+esp_err_t jafr_audio_set_output_route(const char *route)
+{
+    jafr_audio_route_t selected;
+    if (route == NULL || strcmp(route, "auto") == 0) {
+        selected = JAFR_AUDIO_ROUTE_AUTO;
+    } else if (strcmp(route, "s31") == 0) {
+        selected = JAFR_AUDIO_ROUTE_S31;
+    } else if (strcmp(route, "dualeye") == 0) {
+        selected = JAFR_AUDIO_ROUTE_DUALEYE;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open("jafr_audio", NVS_READWRITE, &handle), TAG,
+                        "open audio settings");
+    esp_err_t err = nvs_set_u8(handle, "route", (uint8_t)selected);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    if (err == ESP_OK) {
+        g_audio_route = selected;
+        ESP_LOGI(TAG, "Response audio route changed to %s", audio_route_name(selected));
+    }
+    return err;
+}
+
 void jafr_network_get_web_status(jafr_web_status_t *status)
 {
     if (status == NULL) {
         return;
     }
     memset(status, 0, sizeof(*status));
+    g_status_requests++;
     snprintf(status->wifi_ip, sizeof(status->wifi_ip), "waiting");
     esp_netif_t *wifi = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_ip_info_t info;
@@ -225,6 +338,59 @@ void jafr_network_get_web_status(jafr_web_status_t *status)
     status->rx_packets = g_rx_packets;
     status->mic_rms = g_last_mic_rms;
     status->free_heap = esp_get_free_heap_size();
+    const uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    status->internal_free = heap_caps_get_free_size(internal_caps);
+    status->internal_minimum = heap_caps_get_minimum_free_size(internal_caps);
+    status->internal_largest = heap_caps_get_largest_free_block(internal_caps);
+    status->psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    status->psram_minimum = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    status->allocation_failures = g_allocation_failures;
+    status->last_failed_allocation = g_last_failed_allocation;
+    status->last_failed_caps = g_last_failed_caps;
+    status->status_requests = g_status_requests;
+    jafr_ble_audio_status_t ble = {0};
+    jafr_ble_audio_get_status(&ble);
+    status->ble_audio_initialized = ble.initialized;
+    status->ble_audio_scanning = ble.scanning;
+    status->ble_audio_connected = ble.connected;
+    status->ble_audio_ready = ble.ready;
+    status->ble_audio_mtu = ble.mtu;
+    status->ble_audio_sent = ble.sent_frames;
+    status->ble_audio_dropped = ble.queue_drops;
+    status->ble_audio_failures = ble.write_failures;
+    snprintf(status->audio_route, sizeof(status->audio_route), "%s",
+             audio_route_name(g_audio_route));
+    const bool using_dualeye = g_audio_route != JAFR_AUDIO_ROUTE_S31 && ble.ready;
+    snprintf(status->audio_output, sizeof(status->audio_output), "%s",
+             using_dualeye ? "dualeye" :
+             (g_audio_route == JAFR_AUDIO_ROUTE_DUALEYE ? "s31-fallback" : "s31"));
+    jafr_cloud_status_t cloud = {0};
+    jafr_cloud_voice_get_status(&cloud);
+    snprintf(status->voice_mode, sizeof(status->voice_mode), "%s",
+             cloud.mode == JAFR_VOICE_MODE_DIRECT ? "direct" : "pc");
+    snprintf(status->cloud_state, sizeof(status->cloud_state), "%s",
+             jafr_cloud_state_name(cloud.state));
+    status->cloud_key_configured = cloud.key_configured;
+    status->cloud_direct_active = cloud.direct_active;
+    status->cloud_fallback_active = cloud.fallback_active;
+    status->cloud_provisioning_required = cloud.provisioning_required;
+    status->cloud_stt_connected = cloud.stt_connected;
+    status->cloud_tts_connected = cloud.tts_connected;
+    status->cloud_chunks_sent = cloud.audio_chunks_sent;
+    status->cloud_chunks_dropped = cloud.audio_chunks_dropped;
+    status->cloud_playback_drops = cloud.playback_queue_drops;
+    status->cloud_turns_completed = cloud.turns_completed;
+    status->cloud_history_turns = cloud.history_turns;
+    status->cloud_reconnects = cloud.reconnects;
+    status->cloud_failures = cloud.consecutive_failures;
+    status->cloud_auth_failures = cloud.auth_failures;
+    status->cloud_turn_to_chat_ms = cloud.turn_to_chat_ms;
+    status->cloud_chat_to_text_ms = cloud.chat_to_first_text_ms;
+    status->cloud_text_to_audio_ms = cloud.text_to_first_audio_ms;
+    status->cloud_total_audio_ms = cloud.total_first_audio_ms;
+    status->cloud_playback_stack = cloud.playback_stack_free;
+    status->cloud_last_http_status = cloud.last_http_status;
+    snprintf(status->cloud_last_error, sizeof(status->cloud_last_error), "%s", cloud.last_error);
 }
 
 static float calculate_zcr(int16_t *samples, int num_samples) {
@@ -367,7 +533,7 @@ static void init_codec_device(void)
     }
 }
 
-static bool verify_network_reachability(void)
+static bool wifi_has_address(void)
 {
     ESP_LOGI(TAG, "Verifying network interface and gateway reachability...");
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -384,12 +550,12 @@ static bool verify_network_reachability(void)
 
     char ip_buf[16];
     esp_ip4addr_ntoa(&ip_info.ip, ip_buf, sizeof(ip_buf));
-    if (strcmp(ip_buf, ESP32_STATIC_IP) != 0) {
-        ESP_LOGE(TAG, "Reachability Check FAILED: Netif IP %s != Expected %s", ip_buf, ESP32_STATIC_IP);
+    if (ip_info.ip.addr == 0) {
+        ESP_LOGE(TAG, "Wi-Fi has no IPv4 address");
         return false;
     }
 
-    ESP_LOGI(TAG, "Network Reachability Check PASSED: Validated IPv4 %s on netif.", ip_buf);
+    ESP_LOGI(TAG, "Wi-Fi IPv4 lease: %s", ip_buf);
     return true;
 }
 
@@ -413,7 +579,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "==================================================");
         ESP_LOGI(TAG, "WIFI ASSOCIATED");
-        ESP_LOGI(TAG, "STATIC IP CONFIGURED: " IPSTR, IP2STR(&event->ip_info.ip));
+        ESP_LOGI(TAG, "DHCP IP CONFIGURED: " IPSTR, IP2STR(&event->ip_info.ip));
         ESP_LOGI(TAG, "NETMASK: " IPSTR, IP2STR(&event->ip_info.netmask));
         ESP_LOGI(TAG, "GATEWAY: " IPSTR, IP2STR(&event->ip_info.gw));
         ESP_LOGI(TAG, "PC GATEWAY: %s", PC_GATEWAY_IP_ADDR);
@@ -421,7 +587,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "UDP RX: local port %d", ESP_LISTEN_PORT);
         ESP_LOGI(TAG, "==================================================");
 
-        if (verify_network_reachability()) {
+        if (wifi_has_address()) {
             esp_err_t graphics_net_err = s31_graphics_network_ready();
             if (graphics_net_err != ESP_OK) {
                 ESP_LOGW(TAG, "Graphics ESP-NOW unavailable: %s", esp_err_to_name(graphics_net_err));
@@ -470,23 +636,9 @@ static void init_wifi(void)
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_t *netif = esp_netif_create_default_wifi_sta();
-
-    // Stop DHCP Client to apply Static IPv4 Network Topology
-    esp_err_t dhcp_err = esp_netif_dhcpc_stop(netif);
-    if (dhcp_err != ESP_OK && dhcp_err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
-        ESP_LOGW(TAG, "esp_netif_dhcpc_stop info: %s", esp_err_to_name(dhcp_err));
-    }
-
-    esp_netif_ip_info_t ip_info;
-    memset(&ip_info, 0, sizeof(esp_netif_ip_info_t));
-    ip_info.ip.addr = esp_ip4addr_aton(ESP32_STATIC_IP);
-    ip_info.gw.addr = esp_ip4addr_aton(ESP32_GATEWAY_IP);
-    ip_info.netmask.addr = esp_ip4addr_aton(ESP32_NETMASK);
-
-    ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ip_info));
-    ESP_LOGI(TAG, "Configured Static IPv4: ESP32=%s | Netmask=%s | Gateway=%s",
-             ESP32_STATIC_IP, ESP32_NETMASK, ESP32_GATEWAY_IP);
+    // The station's default DHCP client learns the address, router, and DNS
+    // from each Wi-Fi network. Ethernet retains its dedicated configuration.
+    esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -513,12 +665,15 @@ static void init_wifi(void)
         },
     };
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    wifi_config_t saved = {0};
+    if (esp_wifi_get_config(WIFI_IF_STA, &saved) != ESP_OK || !saved.sta.ssid[0]) {
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    }
     ESP_ERROR_CHECK(esp_wifi_start());
 
     perform_wifi_scan();
 
-    ESP_LOGI(TAG, "Connecting to Wi-Fi SSID '%s'...", WIFI_SSID);
+    ESP_LOGI(TAG, "Connecting to saved Wi-Fi network");
     ESP_ERROR_CHECK(esp_wifi_connect());
 }
 
@@ -566,25 +721,29 @@ static void mic_capture_task(void *pvParameters)
                         ESP_LOGI(TAG, "LOCAL BARGE-IN DETECTED! Halting playback...");
                         s31_led_status_set_state(S31_LED_STATE_BARGE_IN);
                         
-                        // Send BARGE_IN Control Packet
-                        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-                        if (sock >= 0) {
-                            struct sockaddr_in dest_addr;
-                            dest_addr.sin_addr.s_addr = current_pc_gateway_ip();
-                            dest_addr.sin_family = AF_INET;
-                            dest_addr.sin_port = htons(PC_GATEWAY_PORT);
-                            audio_frame_header_t hdr;
-                            memset(&hdr, 0, sizeof(hdr));
-                            hdr.magic[0] = 'C';
-                            hdr.magic[1] = 'O';
-                            hdr.version = 1;
-                            hdr.flags = 0x04; // BARGE_IN
-                            hdr.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
-                            if (dest_addr.sin_addr.s_addr != 0) {
-                                sendto(sock, &hdr, sizeof(hdr), 0,
-                                       (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+                        if (jafr_cloud_voice_is_direct()) {
+                            jafr_cloud_voice_barge_in();
+                        } else {
+                            // Send BARGE_IN Control Packet
+                            int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+                            if (sock >= 0) {
+                                struct sockaddr_in dest_addr;
+                                dest_addr.sin_addr.s_addr = current_pc_gateway_ip();
+                                dest_addr.sin_family = AF_INET;
+                                dest_addr.sin_port = htons(PC_GATEWAY_PORT);
+                                audio_frame_header_t hdr;
+                                memset(&hdr, 0, sizeof(hdr));
+                                hdr.magic[0] = 'C';
+                                hdr.magic[1] = 'O';
+                                hdr.version = 1;
+                                hdr.flags = 0x04; // BARGE_IN
+                                hdr.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+                                if (dest_addr.sin_addr.s_addr != 0) {
+                                    sendto(sock, &hdr, sizeof(hdr), 0,
+                                           (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+                                }
+                                close(sock);
                             }
-                            close(sock);
                         }
                         
                         s_consec_bargein = 0;
@@ -715,6 +874,13 @@ static void udp_tx_task(void *pvParameters)
         size_t item_size = 0;
         void *item = xRingbufferReceive(tx_ringbuf, &item_size, portMAX_DELAY);
         if (item != NULL && item_size == FRAME_PAYLOAD_SIZE) {
+            if (jafr_cloud_voice_is_direct()) {
+                jafr_cloud_voice_submit_pcm((const int16_t *)item, SAMPLES_PER_FRAME);
+                vRingbufferReturnItem(tx_ringbuf, item);
+                g_tx_packets++;
+                g_tx_bytes += item_size;
+                continue;
+            }
             bool ptt_active = ptt_debounce_update();
             if (ptt_active) {
                 hdr->flags = 0x02; // Bit 1: PTT Active
@@ -831,13 +997,23 @@ static void udp_rx_task(void *pvParameters)
                     ESP_LOGI(TAG, "Gateway synchronized conversation state: %u", state_id);
                 }
             } else if (hdr->magic[0] == 'A' && hdr->magic[1] == 'U') {
+                if (jafr_cloud_voice_is_direct()) {
+                    continue;
+                }
                 g_rx_packets++;
                 g_rx_bytes += len;
                 last_rx_time = esp_timer_get_time();
                 s31_led_status_set_state(S31_LED_STATE_SPEAKING);
 
                 size_t pcm_len = len - sizeof(audio_frame_header_t);
-                if (pcm_len > 0 && spk_codec_dev != NULL) {
+                bool routed_to_dualeye = false;
+                if (g_audio_route != JAFR_AUDIO_ROUTE_S31 &&
+                    pcm_len >= sizeof(int16_t) && (pcm_len % sizeof(int16_t)) == 0) {
+                    routed_to_dualeye = jafr_ble_audio_submit_pcm(
+                        (const int16_t *)(rx_buf + sizeof(audio_frame_header_t)),
+                        pcm_len / sizeof(int16_t));
+                }
+                if (!routed_to_dualeye && pcm_len > 0 && spk_codec_dev != NULL) {
                     esp_codec_dev_write(spk_codec_dev, rx_buf + sizeof(audio_frame_header_t), pcm_len);
                 }
             }
@@ -1025,6 +1201,7 @@ static void telemetry_task(void *pvParameters)
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(heap_caps_register_failed_alloc_callback(allocation_failed));
     vTaskDelay(pdMS_TO_TICKS(1000));
     ESP_LOGI(TAG, "==================================================");
     ESP_LOGI(TAG, "ESP32-S31 PHASE 4B: STANDALONE STATUS LED SYSTEM");
@@ -1049,6 +1226,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
     load_gateway_config();
+    load_audio_config();
 
     // Create RingBuffer: 5 frames * 640B = 3200B capacity
     tx_ringbuf = xRingbufferCreate(3200, RINGBUF_TYPE_NOSPLIT);
@@ -1067,6 +1245,16 @@ void app_main(void)
     if (eth_err != ESP_OK) {
         ESP_LOGW(TAG, "Ethernet unavailable: %s", esp_err_to_name(eth_err));
     }
+    esp_err_t ble_audio_err = jafr_ble_audio_init();
+    if (ble_audio_err != ESP_OK) {
+        ESP_LOGW(TAG, "DualEye BLE audio unavailable; S31 speaker fallback remains active: %s",
+                 esp_err_to_name(ble_audio_err));
+    }
+    esp_err_t cloud_err = jafr_cloud_voice_init(route_response_pcm, cloud_state_changed);
+    if (cloud_err != ESP_OK) {
+        ESP_LOGW(TAG, "Direct cloud voice unavailable; PC gateway remains active: %s",
+                 esp_err_to_name(cloud_err));
+    }
     esp_err_t web_err = jafr_webui_start();
     if (web_err != ESP_OK) {
         ESP_LOGW(TAG, "Web control deck unavailable: %s", esp_err_to_name(web_err));
@@ -1074,7 +1262,7 @@ void app_main(void)
 
     if (mic_codec_dev) {
         xTaskCreatePinnedToCore(mic_capture_task, "mic_capture", 4096, NULL, 5, NULL, 0);
-        xTaskCreatePinnedToCore(udp_tx_task, "udp_tx", 4096, NULL, 4, NULL, 1);
+        xTaskCreatePinnedToCore(udp_tx_task, "audio_uplink", 8192, NULL, 4, NULL, 1);
         xTaskCreatePinnedToCore(udp_rx_task, "udp_rx", 4096, NULL, 4, NULL, 1);
         xTaskCreatePinnedToCore(gateway_rediscovery_task, "gw_discovery", 3072, NULL, 2, NULL, 0);
         xTaskCreatePinnedToCore(telemetry_task, "telemetry", 3072, NULL, 2, NULL, 0);

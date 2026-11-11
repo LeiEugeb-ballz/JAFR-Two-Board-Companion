@@ -1,0 +1,234 @@
+{
+  "checks": [
+    {
+      "expected": "true",
+      "name": "s31_ble_initialized",
+      "observed": true,
+      "pass": true
+    },
+    {
+      "expected": "true",
+      "name": "s31_ble_connected",
+      "observed": true,
+      "pass": true
+    },
+    {
+      "expected": "true",
+      "name": "s31_ble_ready",
+      "observed": true,
+      "pass": true
+    },
+    {
+      "expected": ">= 179",
+      "name": "s31_ble_mtu",
+      "observed": 247,
+      "pass": true
+    },
+    {
+      "expected": "true",
+      "name": "s31_espnow_ready",
+      "observed": true,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "s31_ble_drop_delta",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "s31_ble_failure_delta",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "true",
+      "name": "dualeye_initialized",
+      "observed": true,
+      "pass": true
+    },
+    {
+      "expected": "true",
+      "name": "dualeye_connected",
+      "observed": true,
+      "pass": true
+    },
+    {
+      "expected": ">= 179",
+      "name": "dualeye_mtu",
+      "observed": 247,
+      "pass": true
+    },
+    {
+      "expected": ">= 14.5",
+      "name": "dualeye_eye_fps",
+      "observed": 17.243,
+      "pass": true
+    },
+    {
+      "expected": ">= 50",
+      "name": "dualeye_frame_delta",
+      "observed": 75,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "dualeye_allocation_failures",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": ">= 16384",
+      "name": "dualeye_internal_minimum",
+      "observed": 23916,
+      "pass": true
+    },
+    {
+      "expected": ">= 1024",
+      "name": "dualeye_decode_stack",
+      "observed": 2328,
+      "pass": true
+    },
+    {
+      "expected": ">= 1024",
+      "name": "dualeye_server_stack",
+      "observed": 1920,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "dualeye_invalid_frames_delta",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "dualeye_queue_drops_delta",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "dualeye_sequence_gaps_delta",
+      "observed": 0,
+      "pass": true
+    },
+    {
+      "expected": "== 0",
+      "name": "dualeye_playback_drops_delta",
+      "observed": 0,
+      "pass": true
+    }
+  ],
+  "dualeye_after": {
+    "allocation_failures": 0,
+    "connected": true,
+    "decode_stack_free": 2328,
+    "decoded_frames": 0,
+    "eye_fps": 17.243,
+    "eye_frames": 7660,
+    "initialized": true,
+    "internal_free": 35415,
+    "internal_minimum": 23916,
+    "invalid_frames": 0,
+    "last_failed_caps": 0,
+    "last_failed_size": 0,
+    "last_sequence": 0,
+    "mtu": 247,
+    "ok": true,
+    "playback_drops": 0,
+    "psram_free": 7744968,
+    "queue_drops": 0,
+    "received_bytes": 0,
+    "received_frames": 0,
+    "render_both_us": 62368,
+    "render_eye1_us": 30462,
+    "sequence_gaps": 0,
+    "server_stack_free": 1920
+  },
+  "dualeye_before": {
+    "allocation_failures": 0,
+    "connected": true,
+    "decode_stack_free": 2328,
+    "decoded_frames": 0,
+    "eye_fps": 17.267,
+    "eye_frames": 7585,
+    "initialized": true,
+    "internal_free": 35627,
+    "internal_minimum": 25648,
+    "invalid_frames": 0,
+    "last_failed_caps": 0,
+    "last_failed_size": 0,
+    "last_sequence": 0,
+    "mtu": 247,
+    "ok": true,
+    "playback_drops": 0,
+    "psram_free": 7744968,
+    "queue_drops": 0,
+    "received_bytes": 0,
+    "received_frames": 0,
+    "render_both_us": 60382,
+    "render_eye1_us": 30285,
+    "sequence_gaps": 0,
+    "server_stack_free": 1920
+  },
+  "pass": true,
+  "phase": "baseline",
+  "s31_after": {
+    "ble_audio_connected": true,
+    "ble_audio_dropped": 0,
+    "ble_audio_failures": 0,
+    "ble_audio_initialized": true,
+    "ble_audio_mtu": 247,
+    "ble_audio_ready": true,
+    "ble_audio_scanning": false,
+    "ble_audio_sent": 0,
+    "espnow_accepted": 2,
+    "espnow_delivered": 2,
+    "espnow_delivery_failed": 0,
+    "espnow_failed": 0,
+    "espnow_last": "EXPRESSION error",
+    "espnow_ready": true,
+    "ethernet_ip": "192.168.77.2",
+    "ethernet_link": false,
+    "free_heap": 193940,
+    "gateway_discovered": false,
+    "gateway_ip": "0.0.0.0",
+    "gateway_mode": "auto",
+    "mic_muted": false,
+    "mic_rms": 31.0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "wifi_ip": "192.168.88.242"
+  },
+  "s31_before": {
+    "ble_audio_connected": true,
+    "ble_audio_dropped": 0,
+    "ble_audio_failures": 0,
+    "ble_audio_initialized": true,
+    "ble_audio_mtu": 247,
+    "ble_audio_ready": true,
+    "ble_audio_scanning": false,
+    "ble_audio_sent": 0,
+    "espnow_accepted": 2,
+    "espnow_delivered": 2,
+    "espnow_delivery_failed": 0,
+    "espnow_failed": 0,
+    "espnow_last": "EXPRESSION error",
+    "espnow_ready": true,
+    "ethernet_ip": "192.168.77.2",
+    "ethernet_link": false,
+    "free_heap": 193940,
+    "gateway_discovered": false,
+    "gateway_ip": "0.0.0.0",
+    "gateway_mode": "auto",
+    "mic_muted": false,
+    "mic_rms": 165.1,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "wifi_ip": "192.168.88.242"
+  },
+  "sample_seconds": 4.0,
+  "started_utc": "2026-11-08T00:36:34.353184+00:00"
+}

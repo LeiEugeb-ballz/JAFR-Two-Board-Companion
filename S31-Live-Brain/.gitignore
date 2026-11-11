@@ -1,0 +1,5 @@
+# Local conversation memory. Keep private and copy separately from Git.
+pc_gateway/conversation_archive.jsonl
+pc_gateway/recent_memory.jsonl
+pc_gateway/memory.txt
+

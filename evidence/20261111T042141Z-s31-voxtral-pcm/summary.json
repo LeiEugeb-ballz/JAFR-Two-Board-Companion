@@ -1,0 +1,9 @@
+{
+  "observed": "User heard a screech only during direct reply. Board completed one direct turn at 2821 ms first audio with zero playback drops and 45692-byte internal minimum.",
+  "root_cause": "Live realtime Voxtral PCM is 24 kHz float32 LE. The prior board cast the byte stream to signed int16.",
+  "candidate": "Convert float PCM to clamped signed int16, then resample to 16 kHz.",
+  "sha256": "A349BF1E4541D56976B2E5880DB076BA4E7FE5804C8082DD5B5C6AEF48AB0E9B",
+  "checks": "34/34 source and build checks. Host-compiled firmware conversion passed clipping, non-finite input and split-chunk tests.",
+  "flash": "COM18 app write hash verified; both direct sessions active after boot.",
+  "pending": "Audible speech on the corrected image."
+}

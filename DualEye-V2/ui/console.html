@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#121513">
+<title>DualEye / Field Console</title>
+<style>
+:root{color-scheme:dark;--bg:#121513;--panel:#191e1b;--inset:#131815;--line:#343f35;--muted:#a4b0a5;--ink:#f4f1e6;--amber:#ffbf72;--green:#a4e6b8;--mono:ui-monospace,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);background:radial-gradient(ellipse at 28% 0%,#2d281a 0%,transparent 46%),var(--bg);font:15px/1.5 "Segoe UI",sans-serif}
+button,select,input{font:inherit}
+button,select{min-height:42px;padding:8px 13px;border:1px solid var(--line);border-radius:7px;color:var(--ink);background:var(--inset)}
+button{cursor:pointer}
+button:hover,select:hover{border-color:var(--amber)}
+button[aria-pressed=true],button.primary{background:var(--amber);color:#23180d;border-color:var(--amber);font-weight:700}
+button:disabled{cursor:default;opacity:.48}
+:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+main{width:min(1130px,100% - 36px);margin:auto;padding:30px 0 40px}
+.top{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:13px;gap:10px}
+.kicker,.status,.label,.tag,small,output{font:11px/1.45 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.kicker,.label,small{color:var(--muted)} .kicker strong,.tag{color:var(--amber)}
+.status{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;color:var(--muted)}
+.status::before{content:"";width:7px;height:7px;background:#776a56;border-radius:50%}
+.status.online{color:var(--green)}.status.online::before{background:var(--green);box-shadow:0 0 10px #a4e6b880}
+.hero{display:flex;align-items:end;justify-content:space-between;gap:20px;padding:28px 0 20px}
+h1,h2,p{margin:0}h1{font:clamp(46px,7vw,78px)/.96 Georgia,serif;letter-spacing:-.075em}h1 span{color:var(--amber)}
+h2{font:24px/1 Georgia,serif;letter-spacing:-.025em}
+.hero p,.help{color:var(--muted)}.hero p{max-width:295px;font-size:13px}
+.layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(285px,1fr);gap:14px;align-items:start}
+.stack{display:grid;gap:14px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
+.stage{position:relative;overflow:hidden;border:1px solid #344136;border-radius:9px;padding:22px 12px 12px;background-color:#101512;background-image:linear-gradient(#a4e6b812 1px,transparent 1px),linear-gradient(90deg,#a4e6b812 1px,transparent 1px);background-size:19px 19px}
+.eyes{display:flex;justify-content:center;gap:clamp(12px,4vw,48px)}
+.eye{width:min(41%,165px);aspect-ratio:1;position:relative;border-radius:50%;overflow:hidden;border:4px solid #465344;background:radial-gradient(ellipse at center,#e9d7ad,#c6ac7e 54%,#675542 88%);box-shadow:0 0 0 3px #0b0f0d,inset 0 0 20px #301c15a6}
+.eye::before{content:"";position:absolute;inset:0;background:repeating-conic-gradient(from 8deg,#705d4a17 0 1deg,transparent 1deg 16deg)}
+.iris{position:absolute;left:calc(50% + var(--x,0)*19%);top:calc(50% + var(--y,0)*19%);width:59%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,#201c12 28%,transparent 32%),radial-gradient(circle,transparent 36%,#58361855 60%,#241b12 72%),repeating-conic-gradient(from 10deg,#8f572d 0deg,#df9b47 3deg,#846539 7deg,#c28a46 10deg);box-shadow:inset 0 0 12px #30170d,0 0 4px #7b5539;transition:left 110ms linear,top 110ms linear}
+.iris::after{content:"";position:absolute;top:17%;left:24%;width:17%;height:12%;border-radius:50%;background:#fff1ca;filter:blur(1px);opacity:.76}
+.lid{position:absolute;inset:0;background:#101512;transform:translateY(calc(-101% + var(--lid,0)*101%));transition:transform 90ms linear;border-bottom:2px solid #66543b}
+.stage-foot{display:flex;justify-content:space-between;margin-top:14px}
+.modes,.actions,.preset-actions{display:flex;gap:7px;flex-wrap:wrap}.modes>*{flex:1}
+.drive{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin-top:16px}
+.pad{touch-action:none;user-select:none;display:block;width:120px;height:120px;border:1px solid #607063;border-radius:50%;position:relative;padding:0;background:linear-gradient(90deg,transparent 49.5%,#4b5c4d 50%,transparent 50.5%),linear-gradient(transparent 49.5%,#4b5c4d 50%,transparent 50.5%),radial-gradient(circle,transparent 44%,#53634e 45%,transparent 46%),#121814}
+.knob{position:absolute;width:29px;height:29px;left:calc(50% + var(--x,0)*33%);top:calc(50% + var(--y,0)*33%);transform:translate(-50%,-50%);background:var(--green);border:4px solid #405a46;border-radius:50%;box-shadow:0 0 16px #92dcbf4d;pointer-events:none}
+.actions{margin-top:9px}.help{font-size:12px;line-height:1.35}.actions button{font-size:12px;min-height:36px}
+.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.metric{padding:9px;background:var(--inset);border:1px solid var(--line);border-radius:7px;min-width:0}
+.metric strong{display:block;font:21px/1.3 var(--mono);color:var(--green);white-space:nowrap}
+.metric small{font-size:9px}
+.trace{width:100%;height:51px;display:block;margin:9px 0 0;background:repeating-linear-gradient(0deg,#262f28 0 1px,transparent 1px 12px),#131815;border:1px solid var(--line);border-radius:6px}
+.trace polyline{fill:none;stroke:var(--green);stroke-width:1.5;vector-effect:non-scaling-stroke}.trace polyline+polyline{stroke:var(--amber)}
+details summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;list-style:none;gap:10px}
+details summary::-webkit-details-marker{display:none}
+details summary::after{content:"+";font:20px var(--mono);color:var(--amber)}details[open] summary::after{content:"−"}
+.tuning{margin-top:14px;display:grid;gap:9px}
+.slider{display:grid;grid-template-columns:minmax(100px,1fr) 1fr 54px;gap:8px;align-items:center}
+.slider span,.flip{font-size:12px} input[type=range]{min-width:0;width:100%;margin:0;accent-color:var(--green);height:28px}output{text-align:right;color:var(--green);letter-spacing:0}
+.flips{display:flex;gap:12px;flex-wrap:wrap}.flip{display:flex;gap:5px;align-items:center}.flip input{width:17px;height:17px;accent-color:var(--green)}
+.preset-actions{border-top:1px solid var(--line);margin-top:3px;padding-top:10px;align-items:center}
+.preset-actions select{max-width:100%;flex:1}.preset-actions button{font-size:12px;padding-inline:8px}
+.audio{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.audio p{margin-top:6px}.chip{color:var(--muted);border:1px solid var(--line);padding:5px 7px;border-radius:4px;white-space:nowrap}
+#notice{min-height:18px;margin-top:8px;color:var(--amber);font-size:12px}
+footer{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding-top:12px;margin-top:14px}
+@media(max-width:680px){main{width:calc(100% - 24px);padding-top:18px}.hero{align-items:start;flex-direction:column;gap:10px;padding-top:21px}.layout{grid-template-columns:1fr}.panel{padding:13px}.drive{gap:12px}.pad{width:110px;height:110px}footer{gap:8px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body><main>
+<header class="top"><div class="kicker"><strong>DUALEYE</strong> / FIELD SYSTEMS</div><div class="status" id="connection" aria-live="polite">Connecting</div></header>
+<div class="hero"><h1>Field <span>Console.</span></h1><p>Live control for the two-panel Uncanny Eyes rig. Gaze, expression and motion in one place.</p></div>
+<div class="layout">
+<section class="panel" aria-labelledby="drive-title">
+  <div class="heading"><h2 id="drive-title">Eye control</h2><span class="tag" id="mode-tag">—</span></div>
+  <div class="stage">
+    <div class="eyes" aria-hidden="true"><div class="eye"><div class="iris"></div><div class="lid"></div></div><div class="eye"><div class="iris"></div><div class="lid"></div></div></div>
+    <div class="stage-foot"><small>L / R · Gaze preview</small><small id="xy">X — / Y —</small></div>
+  </div>
+  <div class="modes" style="margin-top:12px" aria-label="Gaze mode">
+    <button data-mode="0" aria-pressed="false">Auto</button><button data-mode="1" aria-pressed="false">Gyro</button><button data-mode="2" aria-pressed="false">Manual</button>
+  </div>
+  <div class="drive">
+    <button type="button" class="pad" id="pad" aria-label="Gaze joystick. Drag or use arrow keys. Space centers."><span class="knob"></span></button>
+    <div><p class="help">Drag to steer. Release to center. Manual control times out if the connection drops.</p>
+    <div class="actions"><button data-action="blink" data-value="3">Blink</button><button data-action="blink" data-value="1">Wink L</button><button data-action="blink" data-value="2">Wink R</button><button id="center">Center</button></div></div>
+  </div>
+  <div id="notice" role="status"></div>
+</section>
+<div class="stack">
+<section class="panel" aria-labelledby="signal-title">
+  <div class="heading"><h2 id="signal-title">Live signal</h2><span class="tag" id="imu">—</span></div>
+  <div class="metrics"><div class="metric"><small>Frame pairs/s</small><strong id="fps">—</strong></div><div class="metric"><small>Yaw</small><strong id="yaw">—</strong></div><div class="metric"><small>Pitch</small><strong id="pitch">—</strong></div></div>
+  <svg class="trace" viewBox="0 0 144 44" preserveAspectRatio="none" aria-label="Recent yaw and pitch"><polyline id="yaw-line"></polyline><polyline id="pitch-line"></polyline></svg>
+  <div class="stage-foot"><small id="rate">Gyro —</small><small id="device">IMU —</small></div>
+</section>
+<details class="panel" open>
+  <summary><h2>Motion &amp; light</h2></summary>
+  <div class="tuning">
+    <label class="slider"><span>Brightness</span><input type="range" id="b" min="5" max="100" value="100"><output for="b" id="ob">100%</output></label>
+    <label class="slider"><span>Full gaze at</span><input type="range" id="f" min="10" max="45" value="25"><output for="f" id="of">25°</output></label>
+    <label class="slider"><span>Deadband</span><input type="range" id="d" min="0" max="8" value="2"><output for="d" id="od">2°</output></label>
+    <label class="slider"><span>Smoothing</span><input type="range" id="s" min="25" max="240" value="80"><output for="s" id="os">80 ms</output></label>
+    <div class="flips"><label class="flip"><input id="fx" type="checkbox">Reverse X</label><label class="flip"><input id="fy" type="checkbox">Reverse Y</label><button data-action="recenter">Recenter IMU</button></div>
+    <div class="preset-actions"><select id="slot" aria-label="Preset slot"><option value="0">Preset 1</option><option value="1">Preset 2</option><option value="2">Preset 3</option></select><button id="save">Save</button><button id="load">Load</button><button data-action="defaults">Defaults</button></div>
+  </div>
+</details>
+<section class="panel"><div class="heading"><h2>Voice bay</h2><small class="chip" id="voice-state">Board speaker</small></div>
+<p class="help">Spoken reactions to tilt, a backward lean, and repeated turns. Microphone input is reserved.</p>
+<div class="actions"><button id="voice-switch" type="button">Mute voice</button><button data-action="voice-test" data-value="0">Test wow</button><button data-action="voice-test" data-value="1">Test sleep</button><button data-action="voice-test" data-value="2">Test dizzy</button><button data-action="voice-reverse" id="voice-reverse">Reverse tilt</button></div></section>
+</div>
+</div>
+<footer><small>ESP32-S3 · GC9A01A ×2</small><small id="heap">Internal RAM —</small></footer>
+</main>
+<script>
+const by=id=>document.getElementById(id);
+const modes=[...document.querySelectorAll("[data-mode]")];
+const eyes=[...document.querySelectorAll(".eye")];
+const ranges={b:"%",f:"°",d:"°",s:" ms"};
+const keys=[...Object.keys(ranges),"fx","fy"];
+const pad=by("pad"), notice=by("notice"), slot=by("slot");
+let lastState, mode=1, pendingModeUntil=0, tuningUntil=0, tuneTimer=0, pointer=null;
+let target={x:0,y:0}, aimBusy=false, live=false, samples=[];
+let messageUntil=0;
+function message(text){notice.textContent=text;messageUntil=performance.now()+2200;}
+async function send(op,values={}){
+  const query=new URLSearchParams({op,...values});
+  const response=await fetch("/api/control?"+query,{method:"POST",headers:{"X-DualEye":"console"},signal:AbortSignal.timeout(1800)});
+  if(!response.ok)throw Error(await response.text());
+}
+async function act(op,values={}){
+  try{await send(op,values);return true;}catch(e){message(e.message||"Command failed");return false;}
+}
+function showMode(){
+  modes.forEach(b=>b.setAttribute("aria-pressed",Number(b.dataset.mode)===mode));
+  by("mode-tag").textContent=["Autonomous","Motion follow","Manual drive"][mode];
+}
+async function choose(next){
+  if(!live)return false;
+  if(mode===next)return true;
+  const prev=mode;
+  pendingModeUntil=performance.now()+1000;
+  mode=next;showMode();
+  if(await act("mode",{v:next}))return true;
+  mode=prev;pendingModeUntil=0;showMode();return false;
+}
+modes.forEach(b=>b.addEventListener("click",()=>{
+  position(0,0);
+  choose(Number(b.dataset.mode));
+}));
+document.querySelectorAll("[data-action]").forEach(b=>b.addEventListener("click",async()=>{
+  const op=b.dataset.action;
+  if(await act(op,b.dataset.value?{v:b.dataset.value}:{})){
+    if(op==="defaults"){tuningUntil=0;message("Defaults restored");}
+    if(op==="recenter")message("Hold the assembly still while it calibrates.");
+  }
+}));
+function position(x,y){
+  const n=Math.max(1,Math.hypot(x,y)/100);
+  target={x:Math.round(x/n),y:Math.round(y/n)};
+  pad.style.setProperty("--x",target.x/100);
+  pad.style.setProperty("--y",target.y/100);
+}
+function fromPointer(e){
+  const r=pad.getBoundingClientRect();
+  position((e.clientX-r.left-r.width/2)*240/r.width,(e.clientY-r.top-r.height/2)*240/r.height);
+}
+async function aim(){
+  if(!live||mode!==2||aimBusy)return;
+  aimBusy=true;
+  try{await send("aim",target);}catch(e){message(e.message||"Gaze link lost");}
+  finally{aimBusy=false;}
+}
+pad.addEventListener("pointerdown",async e=>{
+  if(pointer!==null||!live)return;
+  pointer=e.pointerId;pad.setPointerCapture(pointer);fromPointer(e);
+  if(await choose(2))aim();
+});
+pad.addEventListener("pointermove",e=>{if(e.pointerId===pointer)fromPointer(e);});
+function release(e){
+  if(e.pointerId!==pointer)return;
+  pointer=null;position(0,0);aim();
+}
+["pointerup","pointercancel","lostpointercapture"].forEach(name=>pad.addEventListener(name,release));
+pad.addEventListener("keydown",async e=>{
+  const direction={ArrowUp:[0,-20],ArrowDown:[0,20],ArrowLeft:[-20,0],ArrowRight:[20,0]}[e.key];
+  if(!direction&&e.key!==" ")return;
+  e.preventDefault();
+  if(direction)position(target.x+direction[0],target.y+direction[1]);
+  else position(0,0);
+  if(await choose(2))aim();
+});
+by("center").onclick=async()=>{position(0,0);if(await choose(2))aim();};
+setInterval(aim,100);
+const readTuning=()=>Object.fromEntries(keys.map(k=>[k,k.startsWith("f")&&k.length===2?Number(by(k).checked):Number(by(k).value)]));
+function showRanges(){for(const [id,unit] of Object.entries(ranges))by("o"+id).textContent=by(id).value+unit;}
+function edit(){
+  tuningUntil=performance.now()+800;showRanges();
+  clearTimeout(tuneTimer);
+  tuneTimer=setTimeout(()=>act("tune",readTuning()),95);
+}
+keys.forEach(k=>by(k).addEventListener("input",edit));
+by("save").onclick=async()=>{
+  if(await act("save",{slot:slot.value,...readTuning()}))message("Preset saved on device.");
+};
+by("load").onclick=async()=>{
+  if(await act("load",{slot:slot.value})){tuningUntil=0;message("Preset loaded.");}
+};
+function drawTrace(s){
+  samples.push([s.yaw,s.pitch]);if(samples.length>36)samples.shift();
+  const lines=[by("yaw-line"),by("pitch-line")];
+  for(let i=0;i<2;i++)lines[i].setAttribute("points",samples.map((row,k)=>((36-samples.length+k)*144/35)+","+(22-row[i]*.44)).join(" "));
+}
+by("voice-switch").onclick=()=>act("voice",{v:lastState?.voice?0:1});
+function paint(s){
+  by("voice-switch").textContent=s.voice?"Mute voice":"Enable voice";
+  by("voice-state").textContent=s.talk?"Speaking":s.voice?"Reactions on":"Voice off";
+  by("voice-reverse").setAttribute("aria-pressed",Boolean(s.reverse));
+  const now=performance.now();
+  if(now>=pendingModeUntil){mode=s.mode;showMode();}
+  if(now>=tuningUntil){
+    for(const k of keys){
+      if(k==="fx"||k==="fy")by(k).checked=Boolean(s[k]);else by(k).value=s[k];
+    }
+    showRanges();
+  }
+  eyes.forEach((e,i)=>{
+    e.style.setProperty("--x",s.x/512);e.style.setProperty("--y",s.y/512);
+    e.style.setProperty("--lid",i===0?s.left:s.right);
+  });
+  by("xy").textContent="X "+s.x+" / Y "+s.y;
+  by("fps").textContent=s.fps?s.fps.toFixed(1):"—";
+  by("yaw").textContent=s.imu===3?s.yaw.toFixed(1)+"°":"—";
+  by("pitch").textContent=s.imu===3?s.pitch.toFixed(1)+"°":"—";
+  by("imu").textContent=["IMU offline","IMU paused","Calibrating "+s.progress+"/48","IMU ready"][s.imu];
+  by("rate").textContent=s.imu===3?"°/s "+s.rate.map(v=>v.toFixed(1)).join(" / "):"Gyro —";
+  by("device").textContent=s.address?"ID 0x"+s.identity.toString(16).toUpperCase():"IMU —";
+  by("heap").textContent="Internal RAM "+Math.round(s.heap/1024)+" KiB";
+  for(let i=0;i<3;i++)slot.options[i].textContent="Preset "+(i+1)+((s.presets&(1<<i))?" · Saved":" · Empty");
+  by("save").disabled=!s.storage;
+  by("load").disabled=!(s.presets&(1<<Number(slot.value)));
+  if(s.imu===3)drawTrace(s);
+  if(now>=messageUntil)notice.textContent="";
+}
+slot.onchange=()=>{if(lastState)by("load").disabled=!(lastState.presets&(1<<Number(slot.value)));};
+async function poll(){
+  try{
+    const result=await fetch("/api/state",{cache:"no-store",signal:AbortSignal.timeout(1250)});
+    if(!result.ok)throw Error("Status unavailable");
+    lastState=await result.json();
+    live=true;by("connection").textContent="Board online";by("connection").classList.add("online");
+    paint(lastState);
+  }catch{
+    live=false;by("connection").textContent="Link lost";by("connection").classList.remove("online");
+  }finally{setTimeout(poll,live?110:650);}
+}
+poll();
+</script>
+</body></html>

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "board_id": "esp32-s31-function-coreboard-1",
+  "chip": "esp32s31",
+  "framework": "esp-idf",
+  "build_system": "esp-idf",
+  "project_dir": ".",
+  "allowed_gpio": [0, 4, 7, 43, 50, 51, 52, 53, 54, 55, 56, 57, 60],
+  "forbidden_gpio": {},
+  "restricted_gpio": {
+    "0": "Onboard BOOT strapping button; input only during normal operation"
+  },
+  "pins": [
+    {"name": "ptt_boot_button", "gpio": 0, "direction": "input"},
+    {"name": "ptt_breakout", "gpio": 4, "direction": "input"},
+    {"name": "ethernet_phy_reset", "gpio": 7, "direction": "output"},
+    {"name": "graphics_uart_tx", "gpio": 43, "direction": "output"},
+    {"name": "codec_i2c_scl", "gpio": 50, "direction": "bidirectional"},
+    {"name": "codec_i2c_sda", "gpio": 51, "direction": "bidirectional"},
+    {"name": "i2s_mclk", "gpio": 52, "direction": "output"},
+    {"name": "i2s_bclk", "gpio": 53, "direction": "output"},
+    {"name": "i2s_mic_data", "gpio": 54, "direction": "input"},
+    {"name": "i2s_word_select", "gpio": 55, "direction": "output"},
+    {"name": "i2s_speaker_data", "gpio": 56, "direction": "output"},
+    {"name": "speaker_pa_enable", "gpio": 57, "direction": "output"},
+    {"name": "status_ws2812", "gpio": 60, "direction": "output"}
+  ]
+}
+

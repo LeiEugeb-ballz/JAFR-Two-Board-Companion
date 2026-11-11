@@ -1,0 +1,16 @@
+{
+  "automated_pass": true,
+  "checks_failed": 0,
+  "checks_passed": 20,
+  "completed_utc": "2026-11-08T00:36:53.619474+00:00",
+  "evidence_directory": "C:\\Users\\txr45\\Documents\\Project TakeOver\\November\\Jafr\\evidence\\m2-acceptance\\pre-selector-20261108T0235",
+  "phases": [
+    {
+      "error": null,
+      "pass": true,
+      "phase": "baseline"
+    }
+  ],
+  "physical_operator_status": "pending",
+  "speaker_selection_status": "not run or failed; active firmware validation pending"
+}
